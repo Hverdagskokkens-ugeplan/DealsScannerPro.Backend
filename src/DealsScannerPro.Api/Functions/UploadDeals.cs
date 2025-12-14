@@ -26,7 +26,7 @@ public class UploadDeals
 
     [Function("UploadDeals")]
     public async Task<HttpResponseData> Run(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "admin/upload")] HttpRequestData req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "management/upload")] HttpRequestData req)
     {
         // Validate API key
         var expectedApiKey = _configuration["AdminApiKey"];

@@ -32,8 +32,12 @@ public class TableStorageService : ITableStorageService
     public async Task<int> UploadTilbudAsync(UploadRequest request)
     {
         var butik = request.Meta.Butik.ToLowerInvariant();
-        var gyldigFra = DateTime.Parse(request.Meta.GyldigFra ?? DateTime.UtcNow.ToString("yyyy-MM-dd"));
-        var gyldigTil = DateTime.Parse(request.Meta.GyldigTil ?? DateTime.UtcNow.AddDays(7).ToString("yyyy-MM-dd"));
+        var gyldigFra = DateTime.SpecifyKind(
+            DateTime.Parse(request.Meta.GyldigFra ?? DateTime.UtcNow.ToString("yyyy-MM-dd")),
+            DateTimeKind.Utc);
+        var gyldigTil = DateTime.SpecifyKind(
+            DateTime.Parse(request.Meta.GyldigTil ?? DateTime.UtcNow.AddDays(7).ToString("yyyy-MM-dd")),
+            DateTimeKind.Utc);
 
         var partitionKey = $"{butik}_{gyldigFra:yyyy-MM-dd}_{gyldigTil:yyyy-MM-dd}";
 

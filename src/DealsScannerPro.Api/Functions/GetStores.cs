@@ -52,7 +52,7 @@ public class GetStores
 
     [Function("SeedStores")]
     public async Task<HttpResponseData> Seed(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "admin/seed-stores")] HttpRequestData req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "management/seed-stores")] HttpRequestData req)
     {
         try
         {
