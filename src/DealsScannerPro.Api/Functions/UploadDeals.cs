@@ -46,11 +46,27 @@ public class UploadDeals
         {
             var request = await req.ReadFromJsonAsync<UploadRequest>();
 
+            // Debug logging
+            _logger.LogInformation("Received upload request: butik={Butik}, tilbud_count={Count}",
+                request?.Meta?.Butik ?? "null",
+                request?.Tilbud?.Count ?? -1);
+
             if (request == null || request.Tilbud.Count == 0)
             {
+                _logger.LogWarning("Bad request: request={HasRequest}, tilbud_count={Count}",
+                    request != null, request?.Tilbud?.Count ?? 0);
                 var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                 await badRequestResponse.WriteAsJsonAsync(new { error = "Invalid request body or no tilbud provided" });
                 return badRequestResponse;
+            }
+
+            // Log first few tilbud for debugging
+            foreach (var t in request.Tilbud.Take(3))
+            {
+                _logger.LogInformation("Tilbud item: produkt={Produkt}, pris={Pris}, konfidens={Konf}",
+                    t.Produkt?.Substring(0, Math.Min(50, t.Produkt?.Length ?? 0)) ?? "null",
+                    t.TotalPris,
+                    t.Konfidens);
             }
 
             var count = await _storageService.UploadTilbudAsync(request);

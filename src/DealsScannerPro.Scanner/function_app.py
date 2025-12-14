@@ -7,7 +7,7 @@ Automatically processes PDF flyers when uploaded to blob storage.
 Flow:
 1. PDF uploaded to 'tilbudsaviser' container
 2. This function triggers and downloads the PDF
-3. Scanner extracts deals from PDF
+3. Scanner extracts deals from PDF (using production scanners)
 4. Results are POSTed to the API
 5. PDF is moved to 'processed' or 'failed' container
 """
@@ -17,10 +17,22 @@ import logging
 import json
 import re
 import os
+import tempfile
 import requests
 from datetime import datetime, timedelta
 from io import BytesIO
 from azure.storage.blob import BlobServiceClient
+
+# Import production scanners
+try:
+    from scanners import detect_store, get_scanner
+    SCANNERS_AVAILABLE = True
+    logging.info("Successfully imported production scanners")
+except ImportError as e:
+    SCANNERS_AVAILABLE = False
+    logging.error(f"Failed to import scanners: {e}")
+    detect_store = None
+    get_scanner = None
 
 app = func.FunctionApp()
 
@@ -54,8 +66,8 @@ def process_tilbudsavis(blob: func.InputStream):
         pdf_content = blob.read()
         logging.info(f"Read {len(pdf_content)} bytes from blob")
 
-        # Process PDF and extract deals
-        tilbud = extract_deals_from_pdf(pdf_content, butik)
+        # Process PDF and extract deals using production scanners
+        tilbud, scan_metadata = extract_deals_from_pdf(pdf_content, butik)
         logging.info(f"Extracted {len(tilbud)} deals from PDF")
 
         if not tilbud:
@@ -63,14 +75,22 @@ def process_tilbudsavis(blob: func.InputStream):
             move_blob(filename, "failed", {"error": "No deals extracted"})
             return
 
-        # Upload to API
-        upload_result = upload_to_api(butik, gyldig_fra, gyldig_til, filename, tilbud)
+        # Use scanner's validity dates if available (more accurate)
+        if scan_metadata.get('gyldig_fra'):
+            gyldig_fra = scan_metadata['gyldig_fra']
+        if scan_metadata.get('gyldig_til'):
+            gyldig_til = scan_metadata['gyldig_til']
+
+        # Upload to API with enhanced metadata
+        upload_result = upload_to_api(butik, gyldig_fra, gyldig_til, filename, tilbud, scan_metadata)
 
         if upload_result:
             logging.info(f"Successfully uploaded {len(tilbud)} deals for {butik}")
             move_blob(filename, "processed", {
                 "processedAt": datetime.utcnow().isoformat(),
-                "dealsExtracted": str(len(tilbud))
+                "dealsExtracted": str(len(tilbud)),
+                "highConfidence": str(scan_metadata.get('hoj_konfidens', 0)),
+                "scannerVersion": scan_metadata.get('scanner_version', 'unknown')
             })
         else:
             logging.error(f"Failed to upload deals for {filename}")
@@ -118,142 +138,176 @@ def parse_filename(filename: str) -> tuple:
     return butik, gyldig_fra.strftime('%Y-%m-%d'), gyldig_til.strftime('%Y-%m-%d')
 
 
-def extract_deals_from_pdf(pdf_content: bytes, butik: str) -> list:
-    """
-    Extract deals from PDF content using PyMuPDF.
-
-    This is a simplified extraction - the full scanner logic from
-    DealsScannerPro can be integrated here for better results.
-    """
+def extract_deals_fallback(pdf_content: bytes, butik: str) -> list:
+    """Simple fallback extraction when production scanners are not available."""
     try:
-        import fitz  # PyMuPDF
+        import fitz
     except ImportError:
         logging.error("PyMuPDF not installed")
         return []
 
     tilbud = []
-
     try:
-        # Open PDF from bytes
         doc = fitz.open(stream=pdf_content, filetype="pdf")
-        logging.info(f"PDF has {len(doc)} pages")
+        logging.info(f"Fallback: PDF has {len(doc)} pages")
 
         for page_num in range(len(doc)):
             page = doc[page_num]
             text = page.get_text()
+            lines = text.split('\n')
 
-            # Extract deals from page text
-            # This is a simplified version - integrate full scanner for production
-            page_deals = extract_deals_from_text(text, page_num + 1, butik)
-            tilbud.extend(page_deals)
+            for line in lines:
+                line = line.strip()
+                if not line or len(line) < 3:
+                    continue
+
+                # Simple price pattern matching
+                price_match = re.search(r'(\d+)[,.](\d{2})(?:\s*kr)?\.?$|(\d+)\.-$', line)
+                if price_match:
+                    if price_match.group(3):
+                        price = float(price_match.group(3))
+                    else:
+                        price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+
+                    product_text = line[:price_match.start()].strip()
+                    if product_text and len(product_text) > 2 and price > 0:
+                        tilbud.append({
+                            "produkt": product_text,
+                            "total_pris": price,
+                            "pris_per_enhed": price,
+                            "enhed": "stk",
+                            "maengde": "1 stk",
+                            "kategori": "Andet",
+                            "konfidens": 0.5,  # Low confidence for fallback
+                            "side": page_num + 1
+                        })
 
         doc.close()
+    except Exception as e:
+        logging.exception(f"Error in fallback extraction: {str(e)}")
+
+    return tilbud
+
+
+def extract_deals_from_pdf(pdf_content: bytes, butik: str) -> tuple:
+    """
+    Extract deals from PDF content using production scanners.
+
+    Uses the sophisticated scanner implementations with:
+    - Font-size based price detection
+    - Block-based parsing with column detection
+    - Skip patterns to filter non-product text
+    - Confidence scoring
+    - Duplicate detection
+
+    Args:
+        pdf_content: PDF file as bytes
+        butik: Store identifier (netto, rema, foetex, bilka, etc.)
+
+    Returns:
+        Tuple of (tilbud list, scanner_metadata dict)
+    """
+    # Check if scanners are available
+    if not SCANNERS_AVAILABLE:
+        logging.warning("Production scanners not available, using fallback extraction")
+        return extract_deals_fallback(pdf_content, butik), {'scanner_version': 'fallback'}
+
+    temp_path = None
+    try:
+        # Save PDF to temp file (scanners expect file paths)
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
+            f.write(pdf_content)
+            temp_path = f.name
+
+        logging.info(f"Saved PDF to temp file: {temp_path}")
+
+        # Auto-detect store if needed (fallback)
+        if not butik:
+            butik = detect_store(pdf_content)
+            logging.info(f"Auto-detected store: {butik}")
+
+        # Get the appropriate scanner for this store
+        scanner = get_scanner(butik)
+        logging.info(f"Using scanner: {type(scanner).__name__}")
+
+        # Run the scan
+        result = scanner.scan(temp_path)
+
+        # Extract deals and metadata
+        tilbud = result.get('tilbud', [])
+        metadata = {
+            'scanner_version': result.get('scanner_version', 'unknown'),
+            'antal_sider': result.get('antal_sider', 0),
+            'antal_tilbud': len(tilbud),
+            'hoj_konfidens': sum(1 for t in tilbud if t.get('konfidens', 0) >= 0.8),
+            'kategorier': list(set(t.get('kategori', 'Andet') for t in tilbud)),
+            'uge': result.get('uge'),
+            'gyldig_fra': result.get('gyldig_fra'),
+            'gyldig_til': result.get('gyldig_til')
+        }
+
+        logging.info(f"Scan complete: {len(tilbud)} deals, {metadata['hoj_konfidens']} high confidence")
+
+        return tilbud, metadata
 
     except Exception as e:
-        logging.exception(f"Error reading PDF: {str(e)}")
+        logging.exception(f"Error scanning PDF: {str(e)}")
+        return [], {}
 
-    return tilbud
-
-
-def extract_deals_from_text(text: str, page_num: int, butik: str) -> list:
-    """
-    Simple deal extraction from text.
-
-    This is a placeholder - integrate the full netto_scanner.py / rema_scanner.py
-    logic here for production use.
-    """
-    tilbud = []
-
-    # Simple price pattern matching
-    # Pattern: product name followed by price like "49,95" or "49.-"
-    lines = text.split('\n')
-
-    current_product = None
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        # Skip common non-product lines
-        skip_patterns = [
-            r'^pr\.\s*\d', r'^max\.\s*\d', r'^spar\s', r'^inkl\.',
-            r'^gælder', r'^forbehold', r'^\d+-\d+$', r'^www\.',
-            r'^netto', r'^rema', r'^tilbudsavis', r'^uge\s*\d+'
-        ]
-
-        if any(re.match(p, line.lower()) for p in skip_patterns):
-            continue
-
-        # Look for price patterns
-        price_match = re.search(r'(\d+)[,.](\d{2})(?:\s*kr)?\.?$|(\d+)\.-$', line)
-
-        if price_match:
-            if price_match.group(3):  # Pattern like "49.-"
-                price = float(price_match.group(3))
-            else:
-                price = float(f"{price_match.group(1)}.{price_match.group(2)}")
-
-            # Use previous line as product name if current line is just a price
-            product_text = line[:price_match.start()].strip()
-            if not product_text and current_product:
-                product_text = current_product
-
-            if product_text and len(product_text) > 2 and price > 0:
-                tilbud.append({
-                    "produkt": product_text,
-                    "total_pris": price,
-                    "pris_per_enhed": price,
-                    "enhed": "stk",
-                    "maengde": "1 stk",
-                    "kategori": categorize_product(product_text),
-                    "konfidens": 0.7,  # Lower confidence for simple extraction
-                    "side": page_num
-                })
-        else:
-            # Remember this line as potential product name
-            if len(line) > 3 and not line.isdigit():
-                current_product = line
-
-    return tilbud
+    finally:
+        # Clean up temp file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+                logging.debug(f"Cleaned up temp file: {temp_path}")
+            except Exception as e:
+                logging.warning(f"Failed to clean up temp file: {e}")
 
 
-def categorize_product(product: str) -> str:
-    """Categorize product based on keywords."""
-    product_lower = product.lower()
-
-    categories = {
-        'Mejeri': ['mælk', 'smør', 'ost', 'yoghurt', 'skyr', 'fløde', 'æg'],
-        'Kød': ['kylling', 'oksekød', 'svinekød', 'flæsk', 'bacon', 'pølse', 'hakket', 'kød'],
-        'Fisk': ['laks', 'sild', 'rejer', 'torsk', 'fisk'],
-        'Frugt & Grønt': ['æble', 'appelsin', 'banan', 'tomat', 'agurk', 'salat', 'kartoffel'],
-        'Brød & Bagværk': ['brød', 'boller', 'rugbrød', 'kage'],
-        'Drikkevarer': ['cola', 'øl', 'vin', 'juice', 'vand', 'sodavand'],
-    }
-
-    for category, keywords in categories.items():
-        if any(kw in product_lower for kw in keywords):
-            return category
-
-    return "Andet"
-
-
-def upload_to_api(butik: str, gyldig_fra: str, gyldig_til: str, kilde_fil: str, tilbud: list) -> bool:
-    """Upload extracted deals to the API."""
+def upload_to_api(butik: str, gyldig_fra: str, gyldig_til: str, kilde_fil: str, tilbud: list, scan_metadata: dict = None) -> bool:
+    """Upload extracted deals to the API with enhanced metadata."""
 
     if not API_KEY:
         logging.error("DEALS_API_KEY not configured")
         return False
 
+    # Build metadata with scanner information
+    meta = {
+        "butik": butik,
+        "gyldig_fra": gyldig_fra,
+        "gyldig_til": gyldig_til,
+        "kilde_fil": kilde_fil
+    }
+
+    # Add scanner metadata if available
+    if scan_metadata:
+        meta.update({
+            "scanner_version": scan_metadata.get('scanner_version', 'unknown'),
+            "antal_sider": scan_metadata.get('antal_sider', 0),
+            "uge": scan_metadata.get('uge')
+        })
+
+    # Build statistics
+    statistik = {
+        "antal_tilbud": len(tilbud),
+        "hoj_konfidens": sum(1 for t in tilbud if t.get('konfidens', 0) >= 0.8),
+        "kategorier": list(set(t.get('kategori', 'Andet') for t in tilbud))
+    }
+
     payload = {
-        "meta": {
-            "butik": butik,
-            "gyldig_fra": gyldig_fra,
-            "gyldig_til": gyldig_til,
-            "kilde_fil": kilde_fil
-        },
+        "meta": meta,
+        "statistik": statistik,
         "tilbud": tilbud
     }
+
+    # Debug logging for upload payload
+    logging.info(f"Upload payload meta: {meta}")
+    logging.info(f"Upload payload statistik: {statistik}")
+    logging.info(f"Upload payload tilbud count: {len(tilbud)}")
+    if tilbud:
+        # Log first 3 tilbud items for debugging
+        for i, t in enumerate(tilbud[:3]):
+            logging.info(f"Tilbud[{i}]: produkt={t.get('produkt', 'N/A')[:50]}, pris={t.get('total_pris')}, konfidens={t.get('konfidens')}")
 
     try:
         response = requests.post(
@@ -268,7 +322,14 @@ def upload_to_api(butik: str, gyldig_fra: str, gyldig_til: str, kilde_fil: str, 
 
         if response.status_code == 200:
             result = response.json()
+            imported_count = result.get('tilbud_imported', 'unknown')
+            logging.info(f"API SUCCESS: {imported_count} tilbud imported (sent {len(tilbud)})")
             logging.info(f"API response: {result}")
+
+            # CRITICAL: Check if API actually stored the deals
+            if imported_count != len(tilbud):
+                logging.warning(f"MISMATCH: Sent {len(tilbud)} but API imported {imported_count}")
+
             return True
         else:
             logging.error(f"API error: {response.status_code} - {response.text}")
