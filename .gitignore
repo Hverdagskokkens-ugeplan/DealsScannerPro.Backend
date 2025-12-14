@@ -21,6 +21,7 @@ local.settings.json
 # Build
 publish/
 out/
+*.zip
 
 # OS
 .DS_Store
