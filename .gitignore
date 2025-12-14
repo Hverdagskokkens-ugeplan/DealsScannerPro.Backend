@@ -1,0 +1,46 @@
+# .NET
+bin/
+obj/
+*.user
+*.userosscache
+*.suo
+*.cache
+*.dll
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Azure Functions
+local.settings.json
+
+# Build
+publish/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test
+TestResults/
+coverage/
+
+# NuGet
+*.nupkg
+packages/
+
+# Secrets (never commit!)
+*.pfx
+*.key
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json.template

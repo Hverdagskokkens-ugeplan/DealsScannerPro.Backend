@@ -1,0 +1,9 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "TableStorageConnection": "UseDevelopmentStorage=true",
+    "AdminApiKey": "your-local-dev-api-key"
+  }
+}
