@@ -95,10 +95,36 @@ module keyVaultAccess 'modules/keyvault-access.bicep' = {
   }
 }
 
+// Scanner Function App (Python, blob trigger)
+module scannerFunction 'modules/scanner-function.bicep' = {
+  name: 'scanner-functionapp'
+  scope: rg
+  params: {
+    baseName: baseName
+    environment: environment
+    location: location
+    tags: tags
+    storageAccountName: storage.outputs.storageAccountName
+    appInsightsConnectionString: monitoring.outputs.connectionString
+    keyVaultName: keyVault.outputs.keyVaultName
+  }
+}
+
+// Grant Scanner Function App access to Key Vault
+module scannerKeyVaultAccess 'modules/keyvault-access.bicep' = {
+  name: 'scanner-keyvault-access'
+  scope: rg
+  params: {
+    keyVaultName: keyVault.outputs.keyVaultName
+    principalId: scannerFunction.outputs.functionAppPrincipalId
+  }
+}
+
 // Outputs
 output resourceGroupName string = rg.name
 output functionAppName string = functionApp.outputs.functionAppName
 output functionAppUrl string = functionApp.outputs.functionAppUrl
+output scannerFunctionAppName string = scannerFunction.outputs.functionAppName
 output storageAccountName string = storage.outputs.storageAccountName
 output keyVaultName string = keyVault.outputs.keyVaultName
 output appInsightsName string = monitoring.outputs.appInsightsName

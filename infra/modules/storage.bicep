@@ -55,7 +55,41 @@ resource aktivePerioder 'Microsoft.Storage/storageAccounts/tableServices/tables@
   name: 'AktivePerioder'
 }
 
+// Blob Service for PDF storage
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+// Container for incoming PDFs (triggers scanner)
+resource tilbudsaviserContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
+  parent: blobService
+  name: 'tilbudsaviser'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+// Container for successfully processed PDFs
+resource processedContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
+  parent: blobService
+  name: 'processed'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+// Container for failed PDFs (for manual review)
+resource failedContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
+  parent: blobService
+  name: 'failed'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
 // Outputs
 output storageAccountName string = storageAccount.name
 output connectionString string = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${az.environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
 output tableEndpoint string = storageAccount.properties.primaryEndpoints.table
+output blobEndpoint string = storageAccount.properties.primaryEndpoints.blob

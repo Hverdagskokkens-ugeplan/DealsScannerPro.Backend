@@ -1,0 +1,14 @@
+# DealsScannerPro Scanner Function - Dependencies
+# ================================================
+
+# Azure Functions
+azure-functions>=1.17.0
+
+# Azure Storage
+azure-storage-blob>=12.19.0
+
+# PDF Processing
+PyMuPDF>=1.23.0
+
+# HTTP Client
+requests>=2.31.0
