@@ -60,7 +60,7 @@ public class UploadTilbud
     public string Produkt { get; set; } = string.Empty;
 
     [JsonPropertyName("total_pris")]
-    public double TotalPris { get; set; }
+    public double? TotalPris { get; set; }
 
     [JsonPropertyName("pris_per_enhed")]
     public double? PrisPerEnhed { get; set; }
@@ -78,7 +78,7 @@ public class UploadTilbud
     public string Kategori { get; set; } = "Andet";
 
     [JsonPropertyName("konfidens")]
-    public double Konfidens { get; set; }
+    public double? Konfidens { get; set; }
 
     [JsonPropertyName("needs_review")]
     public bool NeedsReview { get; set; }
