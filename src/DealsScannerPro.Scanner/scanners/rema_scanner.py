@@ -115,6 +115,42 @@ class RemaScanner:
         r'www\.\w+\.dk',
         r'^mobilepay',
         r'^dankort',
+        # Recipe ingredients (bullet points)
+        r'^[•·]\s*',
+        r'^\u2022',
+        # Marketing text
+        r'^køb\s+\d+\s+fl',
+        r'^køb\s+\d+\s+og',
+        r'^blandingsforhold',
+        r'^fremgangsmåde',
+        # Footer/metadata
+        r'^uge\s+\d+/\d+',
+        r'hl-repro',
+        r'^scan\s+koden',
+        r'med\s+scan\s+selv',
+        r'^der\s+tages\s+forbehold',
+        # App/store info
+        r'rema1000\.dk',
+        r'^nemt\s+&\s+grønt',
+        r'^opskrift',
+        # More slogans and marketing
+        r'grønnere\s+retter',
+        r'discount\s+med\s+holdning',
+        r'mens\s+du\s+handler',
+        r'enkelt\s+og\s+hurtigt',
+        r'indk.bslister',
+        r'aviser\s+digitalt',
+        r'^det\s+er\s+discount',
+        r'^lave\s+grønnere',
+        # Cooking instructions
+        r'^steges\s+i',
+        r'kernetemperatur',
+        r'^tilberedningstid',
+        r'^\d+\s*°',
+        r'^i\s+ca\.\s+\d+\s+min',
+        # Magazine/editorial
+        r'^vinbladet',
+        r'^på\s+årets',
     ]
 
     # App/member offer patterns
