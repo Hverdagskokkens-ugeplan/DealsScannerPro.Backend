@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -95,7 +96,7 @@ public class SearchDeals
                     gyldig_til = t.GyldigTil.ToString("yyyy-MM-dd"),
                     t.Side,
                     t.KildeFil,
-                    t.Varianter,
+                    Varianter = string.IsNullOrEmpty(t.Varianter) ? null : JsonSerializer.Deserialize<List<string>>(t.Varianter),
                     t.Kommentar,
                     oprettet = t.Oprettet.ToString("yyyy-MM-ddTHH:mm:ssZ")
                 })
