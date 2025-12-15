@@ -184,9 +184,9 @@
     <script>
         const API_BASE = 'https://func-dealscanner-prod.azurewebsites.net/api';
 
-        // Set default date to a date with data (2025-12-10)
-        // Today (2025-12-15) has no valid deals
-        document.getElementById('date-input').value = '2025-12-10';
+        // Set default date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('date-input').value = today;
 
         // Checkbox logic: "Alle" deselects individual stores and vice versa
         const allCheckbox = document.getElementById('store-all');
