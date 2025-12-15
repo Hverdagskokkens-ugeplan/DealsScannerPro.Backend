@@ -9,4 +9,5 @@ public interface ITableStorageService
     Task<Tilbud?> GetTilbudByIdAsync(string partitionKey, string rowKey);
     Task<List<Butik>> GetButikkerAsync();
     Task SeedButikkerAsync();
+    Task<List<Tilbud>> GetTilbudByDateAsync(DateTime dato);
 }

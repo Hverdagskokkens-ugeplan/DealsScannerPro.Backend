@@ -131,6 +131,23 @@ public class TableStorageService : ITableStorageService
         return results;
     }
 
+    public async Task<List<Tilbud>> GetTilbudByDateAsync(DateTime dato)
+    {
+        var results = new List<Tilbud>();
+        var dateString = dato.ToString("yyyy-MM-dd");
+
+        // Filter: GyldigFra <= dato AND GyldigTil >= dato
+        var filter = $"GyldigFra le datetime'{dateString}T00:00:00Z' and GyldigTil ge datetime'{dateString}T00:00:00Z'";
+
+        await foreach (var entity in _tilbudTable.QueryAsync<Tilbud>(filter))
+        {
+            results.Add(entity);
+        }
+
+        _logger.LogInformation("Found {Count} tilbud valid for date {Date}", results.Count, dateString);
+        return results;
+    }
+
     public async Task SeedButikkerAsync()
     {
         var butikker = new List<Butik>
