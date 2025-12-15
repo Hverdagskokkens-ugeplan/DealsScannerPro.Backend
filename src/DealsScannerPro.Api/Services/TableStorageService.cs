@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Azure.Data.Tables;
 using DealsScannerPro.Api.Models;
@@ -44,10 +46,13 @@ public class TableStorageService : ITableStorageService
         var count = 0;
         foreach (var t in request.Tilbud)
         {
+            // Generate deterministic RowKey from product + price to prevent duplicates
+            var rowKey = GenerateRowKey(t.Produkt, t.TotalPris);
+
             var entity = new Tilbud
             {
                 PartitionKey = partitionKey,
-                RowKey = Guid.NewGuid().ToString(),
+                RowKey = rowKey,
                 Produkt = t.Produkt,
                 TotalPris = t.TotalPris,
                 PrisPerEnhed = t.PrisPerEnhed,
@@ -67,7 +72,8 @@ public class TableStorageService : ITableStorageService
                 Oprettet = DateTime.UtcNow
             };
 
-            await _tilbudTable.AddEntityAsync(entity);
+            // Use Upsert to overwrite duplicates instead of creating new entries
+            await _tilbudTable.UpsertEntityAsync(entity, TableUpdateMode.Replace);
             count++;
         }
 
@@ -75,6 +81,18 @@ public class TableStorageService : ITableStorageService
             count, butik, gyldigFra, gyldigTil);
 
         return count;
+    }
+
+    /// <summary>
+    /// Generate a deterministic RowKey from product name and price.
+    /// This ensures the same product won't create duplicates when re-uploaded.
+    /// </summary>
+    private static string GenerateRowKey(string? produkt, double? pris)
+    {
+        var input = $"{produkt?.ToLowerInvariant().Trim()}|{pris:F2}";
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        // Use first 16 bytes (32 hex chars) for a shorter but still unique key
+        return Convert.ToHexString(hashBytes)[..32].ToLowerInvariant();
     }
 
     public async Task<List<Tilbud>> GetTilbudAsync(string? butik = null, string? kategori = null, int? maxResults = 100)
