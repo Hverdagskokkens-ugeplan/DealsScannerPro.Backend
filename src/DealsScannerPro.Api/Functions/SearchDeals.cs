@@ -83,13 +83,21 @@ public class SearchDeals
                     pris_per_enhed = t.PrisPerEnhed,
                     t.Enhed,
                     t.Maengde,
+                    maengde_normaliseret = t.MaengdeValue.HasValue ? new
+                    {
+                        value = t.MaengdeValue,
+                        unit = t.MaengdeUnit
+                    } : null,
                     t.Kategori,
                     t.Konfidens,
                     t.Butik,
                     gyldig_fra = t.GyldigFra.ToString("yyyy-MM-dd"),
                     gyldig_til = t.GyldigTil.ToString("yyyy-MM-dd"),
                     t.Side,
-                    t.KildeFil
+                    t.KildeFil,
+                    t.Varianter,
+                    t.Kommentar,
+                    oprettet = t.Oprettet.ToString("yyyy-MM-ddTHH:mm:ssZ")
                 })
                 .ToList();
 
