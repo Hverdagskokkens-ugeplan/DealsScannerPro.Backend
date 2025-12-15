@@ -118,29 +118,148 @@ class ScannerV2:
         return name.strip()
 
     def _is_valid_product(self, offer: Dict) -> bool:
-        """Check if an offer is a valid product"""
+        """
+        Check if an offer is a valid product.
+
+        Validates against:
+        - Structural issues (too short, only numbers, etc.)
+        - Mid-sentence fragments (starts lowercase)
+        - Generic single words (dybfrost, frisk, dansk)
+        - Month names and time references
+        - Instructions and promotional text
+        - Cooking instructions
+        - Missing price (required for most products)
+        """
         produkt = offer.get('produkt', '')
         konfidens = offer.get('konfidens', 0)
+        has_price = offer.get('total_pris') is not None
 
-        if konfidens < 0.5 and not offer.get('total_pris'):
-            return False
+        # === STRUCTURAL CHECKS ===
         if len(produkt) < 3:
             return False
         if re.match(r'^[\d\s\-]+$', produkt):
             return False
         if re.match(r'^\d+-pak$', produkt.lower()):
             return False
+        if re.match(r'^\d+\s*[.,]\s*-\s*$', produkt):
+            return False
+        if re.match(r'^\d+[.,]\d{2}$', produkt):
+            return False
+        if re.match(r'^[A-ZÆØÅ\s!]+$', produkt) and len(produkt) > 5:
+            return False
+        if re.search(r'\d+\s*[.,]\s*-', produkt) and len(produkt) < 10:
+            return False
+        if re.match(r'^[&]\s', produkt):
+            return False
 
+        # === STARTS WITH LOWERCASE (mid-sentence fragment) ===
+        # Product names should start with uppercase or number
+        if produkt and produkt[0].islower():
+            return False
+
+        # === GENERIC SINGLE WORDS ===
+        # These are too vague to be real products
+        generic_words = {
+            'dybfrost', 'frost', 'frisk', 'dansk', 'økologisk',
+            'udenlandsk', 'imported', 'december', 'januar', 'februar',
+            'marts', 'april', 'maj', 'juni', 'juli', 'august',
+            'september', 'oktober', 'november', 'tarteletfyld',
+            'tilbehør', 'diverse', 'blandet', 'mix', 'andet'
+        }
+        if produkt.lower().strip() in generic_words:
+            return False
+
+        # === MONTH NAMES (even with surrounding text) ===
+        month_pattern = r'^(januar|februar|marts|april|maj|juni|juli|august|september|oktober|november|december)(\s|$)'
+        if re.match(month_pattern, produkt.lower()):
+            return False
+
+        # === INSTRUCTIONS AND ACTIONS ===
+        instruction_patterns = [
+            r'^vej\s+selv',           # "weigh yourself"
+            r'^scan\s+(og|&|koden)',  # "scan and participate"
+            r'^deltag\s+',            # "participate"
+            r'^tilmeld\s+',           # "sign up"
+            r'^hent\s+',              # "get/fetch"
+            r'^se\s+(mere|avisen|opskrift|åbningstid)',
+            r'^læs\s+mere',
+            r'^find\s+',
+            r'^vind\s+',
+            r'^køb\s+\d+\s+(og|for)', # "buy X and get"
+            r'^spar\s+',              # "save"
+        ]
+        for pattern in instruction_patterns:
+            if re.search(pattern, produkt.lower()):
+                return False
+
+        # === COOKING INSTRUCTIONS (mid-recipe text) ===
+        cooking_patterns = [
+            r'^steges\s+',
+            r'^koges\s+',
+            r'^bages\s+',
+            r'^serveres\s+',
+            r'^tilberedes\s+',
+            r'^pakkes\s+ind',
+            r'^lægges\s+',
+            r'^skæres\s+',
+            r'^er\s+opnået',          # "is achieved" (cooking temp reached)
+            r'^er\s+klar',            # "is ready"
+            r'^er\s+færdig',          # "is done"
+            r'^\d+\s*°',              # temperature
+            r'^i\s+ca\.\s+\d+\s+min', # "for approx X min"
+            r'^kernetemperatur',
+        ]
+        for pattern in cooking_patterns:
+            if re.search(pattern, produkt.lower()):
+                return False
+
+        # === PROMOTIONAL/MARKETING TEXT ===
         skip_starts = [
-            'gælder fra', 'forbehold for', 'flere butikker',
-            'de viste', 'find årets', 'vind værdien',
-            'hvert tilvalg', 'baseret på', 'når du køber',
-            'dit bidrag', 'læs mere', 'til måltider',
-            'julemærker', 'upersonlige'
+            'gælder', 'forbehold', 'flere butikker',
+            'de viste', 'baseret på', 'netto',
+            'tilbud', 'member', 'medlems',
+            'meget mere', 'julefrokost', 'fest', 'super',
+            'åbningstid', 'du kan også', 'hent scan',
+            'mobilepay', 'dankort', 'se mere',
+            'julekalender', 'konkurrence',
+            'julemærker', 'upersonlige', 'dit bidrag',
+            'hvert tilvalg', 'når du køber', 'til måltider',
         ]
         for skip in skip_starts:
             if produkt.lower().startswith(skip):
                 return False
+
+        marketing_keywords = [
+            'julefrokost', 'meget mere', 'super tilbud', 'kæmpe tilbud',
+            'julekalender', 'konkurrence', 'vind ', 'deltag ',
+            'normalpris', 'før ', 'spar '
+        ]
+        for keyword in marketing_keywords:
+            if keyword in produkt.lower():
+                return False
+
+        # === PRICE REQUIREMENT ===
+        # Products without price are usually not real products
+        if not has_price:
+            # Allow high-confidence items without price (may be valid variants)
+            if konfidens < 0.7:
+                return False
+            # Short names without price are suspicious
+            if len(produkt) < 10:
+                return False
+            # Extra strict for items without price
+            problematic_starts = [
+                'og ', 'se ', 'kasse med', '& ', 'med ',
+                'eller ', 'samt ', 'inkl', 'excl',
+            ]
+            for start in problematic_starts:
+                if produkt.lower().startswith(start):
+                    return False
+
+        # === LOW CONFIDENCE WITHOUT PRICE ===
+        if konfidens < 0.5 and not has_price:
+            return False
+
         return True
 
     def _clean_text(self, text: str) -> str:
