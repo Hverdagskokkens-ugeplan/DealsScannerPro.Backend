@@ -54,11 +54,13 @@ public class FuzzySearchService : IFuzzySearchService
             StringSplitOptions.RemoveEmptyEntries);
         var queryLower = query.ToLower().Trim();
 
-        // Adjust threshold for short queries to avoid false positives
-        var adjustedThreshold = queryLower.Length <= 3 ? 1 : threshold;
+        // Stricter matching for short queries to avoid false positives
+        // e.g., "brød" should not match "brun" or "bord"
+        var adjustedThreshold = queryLower.Length <= 4 ? 1 : threshold;
 
         return words.Any(word =>
             word.Length >= 2 && // Skip very short words
+            char.ToLower(word[0]) == char.ToLower(queryLower[0]) && // First letter must match
             LevenshteinDistance(word, queryLower) <= adjustedThreshold
         );
     }
