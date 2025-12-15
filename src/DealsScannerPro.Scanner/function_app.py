@@ -1,15 +1,17 @@
 """
-DealsScannerPro - Blob Triggered Scanner Function
-==================================================
+DealsScannerPro - Event Grid Triggered Scanner Function
+=======================================================
 
 Automatically processes PDF flyers when uploaded to blob storage.
+Uses Event Grid for reliable, low-latency triggering.
 
 Flow:
 1. PDF uploaded to 'tilbudsaviser' container
-2. This function triggers and downloads the PDF
-3. Scanner extracts deals from PDF (using production scanners)
-4. Results are POSTed to the API
-5. PDF is moved to 'processed' or 'failed' container
+2. Event Grid triggers this function (<1 second latency)
+3. Function downloads PDF from blob storage
+4. Scanner extracts deals from PDF (using production scanners)
+5. Results are POSTed to the API
+6. PDF is moved to 'processed' or 'failed' container
 """
 
 import azure.functions as func
@@ -17,24 +19,77 @@ import logging
 import json
 import re
 import os
-import tempfile
-import requests
-from datetime import datetime, timedelta
-from io import BytesIO
-from azure.storage.blob import BlobServiceClient
 
-# Import production scanners
-try:
-    from scanners import detect_store, get_scanner
-    SCANNERS_AVAILABLE = True
-    logging.info("Successfully imported production scanners")
-except ImportError as e:
-    SCANNERS_AVAILABLE = False
-    logging.error(f"Failed to import scanners: {e}")
-    detect_store = None
-    get_scanner = None
-
+# Create app first to ensure function discovery works
 app = func.FunctionApp()
+
+# Lazy-loaded modules (imported when needed)
+_requests = None
+_BlobServiceClient = None
+_tempfile = None
+_datetime = None
+_timedelta = None
+_detect_store = None
+_get_scanner = None
+SCANNERS_AVAILABLE = False
+
+
+def _lazy_import():
+    """Lazy import of dependencies to avoid blocking function discovery."""
+    global _requests, _BlobServiceClient, _tempfile, _datetime, _timedelta
+    global _detect_store, _get_scanner, SCANNERS_AVAILABLE
+
+    if _requests is None:
+        try:
+            import requests as req_module
+            _requests = req_module
+        except ImportError as e:
+            logging.error(f"Failed to import requests: {e}")
+
+    if _BlobServiceClient is None:
+        try:
+            from azure.storage.blob import BlobServiceClient
+            _BlobServiceClient = BlobServiceClient
+        except ImportError as e:
+            logging.error(f"Failed to import azure.storage.blob: {e}")
+
+    if _tempfile is None:
+        try:
+            import tempfile as tf_module
+            _tempfile = tf_module
+        except ImportError as e:
+            logging.error(f"Failed to import tempfile: {e}")
+
+    if _datetime is None:
+        try:
+            from datetime import datetime, timedelta
+            _datetime = datetime
+            _timedelta = timedelta
+        except ImportError as e:
+            logging.error(f"Failed to import datetime: {e}")
+
+    if _detect_store is None:
+        try:
+            from scanners import detect_store, get_scanner
+            _detect_store = detect_store
+            _get_scanner = get_scanner
+            SCANNERS_AVAILABLE = True
+            logging.info("Successfully imported production scanners")
+        except ImportError as e:
+            logging.error(f"Failed to import scanners: {e}")
+
+
+# Health check endpoint for testing deployment
+@app.route(route="health", methods=["GET"])
+def health_check(req: func.HttpRequest) -> func.HttpResponse:
+    """Simple health check to verify function deployment."""
+    _lazy_import()
+    return func.HttpResponse(
+        '{"status":"healthy","scanners_available":' + str(SCANNERS_AVAILABLE).lower() + '}',
+        mimetype="application/json",
+        status_code=200
+    )
+
 
 # Configuration
 API_BASE_URL = os.environ.get("DEALS_API_URL", "https://func-dealscanner-prod.azurewebsites.net")
@@ -42,29 +97,55 @@ API_KEY = os.environ.get("DEALS_API_KEY", "")
 STORAGE_CONNECTION = os.environ.get("AzureWebJobsStorage", "")
 
 
-@app.blob_trigger(
-    arg_name="blob",
-    path="tilbudsaviser/{name}",
-    connection="AzureWebJobsStorage"
-)
-def process_tilbudsavis(blob: func.InputStream):
+@app.event_grid_trigger(arg_name="event")
+def process_tilbudsavis(event: func.EventGridEvent):
     """
-    Process uploaded PDF flyer.
+    Process uploaded PDF flyer via Event Grid trigger.
 
+    Triggered by BlobCreated events on 'tilbudsaviser' container.
     Expected filename format: {butik}_{year}-uge{week}.pdf
     Examples: netto_2025-uge51.pdf, rema_2025-uge51.pdf
     """
-    filename = blob.name.split('/')[-1]  # Get just the filename
-    logging.info(f"Processing PDF: {filename}, Size: {blob.length} bytes")
+    _lazy_import()  # Load dependencies
+    logging.info(f"Event Grid trigger fired: {event.event_type}")
+    logging.info(f"Event subject: {event.subject}")
+    logging.info(f"Event data: {event.get_json()}")
+
+    # Only process BlobCreated events
+    if event.event_type != "Microsoft.Storage.BlobCreated":
+        logging.info(f"Ignoring event type: {event.event_type}")
+        return
+
+    event_data = event.get_json()
+
+    # Extract blob URL and validate container
+    blob_url = event_data.get("url", "")
+    if "/tilbudsaviser/" not in blob_url:
+        logging.info(f"Ignoring blob not in tilbudsaviser container: {blob_url}")
+        return
+
+    # Extract filename from subject (format: /blobServices/default/containers/tilbudsaviser/blobs/filename.pdf)
+    subject = event.subject
+    filename = subject.split("/blobs/")[-1] if "/blobs/" in subject else None
+
+    if not filename or not filename.lower().endswith('.pdf'):
+        logging.info(f"Ignoring non-PDF file: {filename}")
+        return
+
+    logging.info(f"Processing PDF: {filename}")
 
     try:
         # Parse filename to extract store and week
         butik, gyldig_fra, gyldig_til = parse_filename(filename)
         logging.info(f"Parsed: butik={butik}, fra={gyldig_fra}, til={gyldig_til}")
 
-        # Read PDF content
-        pdf_content = blob.read()
-        logging.info(f"Read {len(pdf_content)} bytes from blob")
+        # Download PDF content from blob storage
+        pdf_content = download_blob(filename)
+        if not pdf_content:
+            logging.error(f"Failed to download blob: {filename}")
+            return
+
+        logging.info(f"Downloaded {len(pdf_content)} bytes from blob")
 
         # Process PDF and extract deals using production scanners
         tilbud, scan_metadata = extract_deals_from_pdf(pdf_content, butik)
@@ -104,6 +185,29 @@ def process_tilbudsavis(blob: func.InputStream):
         move_blob(filename, "failed", {"error": str(e)})
 
 
+def download_blob(filename: str) -> bytes:
+    """Download blob content from tilbudsaviser container."""
+    if not STORAGE_CONNECTION:
+        logging.error("Storage connection not configured")
+        return None
+
+    if _BlobServiceClient is None:
+        logging.error("BlobServiceClient not available")
+        return None
+
+    try:
+        blob_service = _BlobServiceClient.from_connection_string(STORAGE_CONNECTION)
+        container_client = blob_service.get_container_client("tilbudsaviser")
+        blob_client = container_client.get_blob_client(filename)
+
+        download_stream = blob_client.download_blob()
+        return download_stream.readall()
+
+    except Exception as e:
+        logging.exception(f"Error downloading blob {filename}: {str(e)}")
+        return None
+
+
 def parse_filename(filename: str) -> tuple:
     """
     Parse filename to extract store and validity period.
@@ -130,10 +234,10 @@ def parse_filename(filename: str) -> tuple:
 
     # Calculate week dates (Monday to Sunday)
     # ISO week date: week 1 is the week containing Jan 4
-    jan4 = datetime(year, 1, 4)
-    week_start = jan4 - timedelta(days=jan4.weekday())  # Monday of week 1
-    gyldig_fra = week_start + timedelta(weeks=week - 1)
-    gyldig_til = gyldig_fra + timedelta(days=6)
+    jan4 = _datetime(year, 1, 4)
+    week_start = jan4 - _timedelta(days=jan4.weekday())  # Monday of week 1
+    gyldig_fra = week_start + _timedelta(weeks=week - 1)
+    gyldig_til = gyldig_fra + _timedelta(days=6)
 
     return butik, gyldig_fra.strftime('%Y-%m-%d'), gyldig_til.strftime('%Y-%m-%d')
 
@@ -215,7 +319,7 @@ def extract_deals_from_pdf(pdf_content: bytes, butik: str) -> tuple:
     temp_path = None
     try:
         # Save PDF to temp file (scanners expect file paths)
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
+        with _tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
             f.write(pdf_content)
             temp_path = f.name
 
@@ -223,11 +327,11 @@ def extract_deals_from_pdf(pdf_content: bytes, butik: str) -> tuple:
 
         # Auto-detect store if needed (fallback)
         if not butik:
-            butik = detect_store(pdf_content)
+            butik = _detect_store(pdf_content)
             logging.info(f"Auto-detected store: {butik}")
 
         # Get the appropriate scanner for this store
-        scanner = get_scanner(butik)
+        scanner = _get_scanner(butik)
         logging.info(f"Using scanner: {type(scanner).__name__}")
 
         # Run the scan
@@ -309,8 +413,12 @@ def upload_to_api(butik: str, gyldig_fra: str, gyldig_til: str, kilde_fil: str, 
         for i, t in enumerate(tilbud[:3]):
             logging.info(f"Tilbud[{i}]: produkt={t.get('produkt', 'N/A')[:50]}, pris={t.get('total_pris')}, konfidens={t.get('konfidens')}")
 
+    if _requests is None:
+        logging.error("requests module not available")
+        return False
+
     try:
-        response = requests.post(
+        response = _requests.post(
             f"{API_BASE_URL}/api/management/upload",
             json=payload,
             headers={
@@ -347,15 +455,19 @@ def move_blob(filename: str, destination: str, metadata: dict = None):
         logging.warning("Storage connection not configured, skipping blob move")
         return
 
+    if _BlobServiceClient is None:
+        logging.warning("BlobServiceClient not available, skipping blob move")
+        return
+
     try:
-        blob_service = BlobServiceClient.from_connection_string(STORAGE_CONNECTION)
+        blob_service = _BlobServiceClient.from_connection_string(STORAGE_CONNECTION)
 
         # Source blob
         source_container = blob_service.get_container_client("tilbudsaviser")
         source_blob = source_container.get_blob_client(filename)
 
         # Destination blob with folder structure (year/week/)
-        now = datetime.utcnow()
+        now = _datetime.utcnow()
         dest_path = f"{now.year}/uge{now.isocalendar()[1]:02d}/{filename}"
 
         dest_container = blob_service.get_container_client(destination)
