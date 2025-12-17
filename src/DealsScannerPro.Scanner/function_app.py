@@ -1,16 +1,20 @@
 """
-DealsScannerPro - Event Grid Triggered Scanner Function
-=======================================================
+DealsScannerPro - Event Grid Triggered Scanner Function v2.0
+============================================================
 
 Automatically processes PDF flyers when uploaded to blob storage.
-Uses Event Grid for reliable, low-latency triggering.
+Uses the new scanner pipeline with:
+- Azure Document Intelligence for layout extraction
+- GPT-4o-mini for product normalization
+- Deterministic unit price calculation
+- Confidence-based auto-publish
 
 Flow:
 1. PDF uploaded to 'tilbudsaviser' container
 2. Event Grid triggers this function (<1 second latency)
 3. Function downloads PDF from blob storage
-4. Scanner extracts deals from PDF (using production scanners)
-5. Results are POSTed to the API
+4. New scanner pipeline extracts and normalizes offers
+5. Results are POSTed to the API (v2 format)
 6. PDF is moved to 'processed' or 'failed' container
 """
 
@@ -23,21 +27,19 @@ import os
 # Create app first to ensure function discovery works
 app = func.FunctionApp()
 
-# Lazy-loaded modules (imported when needed)
+# Lazy-loaded modules
 _requests = None
 _BlobServiceClient = None
-_tempfile = None
 _datetime = None
 _timedelta = None
-_detect_store = None
-_get_scanner = None
-SCANNERS_AVAILABLE = False
+_Scanner = None
+SCANNER_AVAILABLE = False
 
 
 def _lazy_import():
     """Lazy import of dependencies to avoid blocking function discovery."""
-    global _requests, _BlobServiceClient, _tempfile, _datetime, _timedelta
-    global _detect_store, _get_scanner, SCANNERS_AVAILABLE
+    global _requests, _BlobServiceClient, _datetime, _timedelta
+    global _Scanner, SCANNER_AVAILABLE
 
     if _requests is None:
         try:
@@ -53,13 +55,6 @@ def _lazy_import():
         except ImportError as e:
             logging.error(f"Failed to import azure.storage.blob: {e}")
 
-    if _tempfile is None:
-        try:
-            import tempfile as tf_module
-            _tempfile = tf_module
-        except ImportError as e:
-            logging.error(f"Failed to import tempfile: {e}")
-
     if _datetime is None:
         try:
             from datetime import datetime, timedelta
@@ -68,33 +63,97 @@ def _lazy_import():
         except ImportError as e:
             logging.error(f"Failed to import datetime: {e}")
 
-    if _detect_store is None:
+    if _Scanner is None:
         try:
-            from scanners import detect_store, get_scanner
-            _detect_store = detect_store
-            _get_scanner = get_scanner
-            SCANNERS_AVAILABLE = True
-            logging.info("Successfully imported production scanners")
+            from services.scanner import Scanner
+            _Scanner = Scanner
+            SCANNER_AVAILABLE = True
+            logging.info("Successfully imported scanner v2.0 services")
         except ImportError as e:
-            logging.error(f"Failed to import scanners: {e}")
-
-
-# Health check endpoint for testing deployment
-@app.route(route="health", methods=["GET"])
-def health_check(req: func.HttpRequest) -> func.HttpResponse:
-    """Simple health check to verify function deployment."""
-    _lazy_import()
-    return func.HttpResponse(
-        '{"status":"healthy","scanners_available":' + str(SCANNERS_AVAILABLE).lower() + '}',
-        mimetype="application/json",
-        status_code=200
-    )
+            logging.warning(f"Scanner v2.0 not available: {e}")
+            # Try legacy scanners as fallback
+            try:
+                from scanners import detect_store, get_scanner
+                logging.info("Falling back to legacy scanners")
+            except ImportError:
+                logging.error("No scanner available")
 
 
 # Configuration
 API_BASE_URL = os.environ.get("DEALS_API_URL", "https://func-dealscanner-prod.azurewebsites.net")
 API_KEY = os.environ.get("DEALS_API_KEY", "")
 STORAGE_CONNECTION = os.environ.get("AzureWebJobsStorage", "")
+# Support both standard OpenAI and Azure OpenAI
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get("AZURE_OPENAI_API_KEY", "")
+OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")  # Only needed for Azure OpenAI
+
+
+# Health check endpoint (anonymous for easy testing)
+@app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def health_check(req: func.HttpRequest) -> func.HttpResponse:
+    """Health check to verify function deployment."""
+    _lazy_import()
+    return func.HttpResponse(
+        json.dumps({
+            "status": "healthy",
+            "scanner_v2_available": SCANNER_AVAILABLE,
+            "version": "2.0.0"
+        }),
+        mimetype="application/json",
+        status_code=200
+    )
+
+
+# Manual scan endpoint (for testing)
+@app.route(route="scan", methods=["POST"])
+def manual_scan(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Manual scan endpoint for testing.
+
+    POST /api/scan
+    Body: PDF file as binary
+    Query params: ?butik=netto&gyldig_fra=2025-01-01&gyldig_til=2025-01-07
+    """
+    _lazy_import()
+
+    try:
+        pdf_content = req.get_body()
+        if not pdf_content:
+            return func.HttpResponse(
+                json.dumps({"error": "No PDF content provided"}),
+                status_code=400
+            )
+
+        # Parse query params
+        butik = req.params.get("butik", "unknown")
+        gyldig_fra = req.params.get("gyldig_fra")
+        gyldig_til = req.params.get("gyldig_til")
+
+        # Scan PDF
+        result = scan_pdf_v2(pdf_content, butik)
+
+        return func.HttpResponse(
+            json.dumps({
+                "success": True,
+                "retailer": result.retailer,
+                "offers_count": len(result.offers),
+                "offers": [offer_to_dict(o) for o in result.offers[:10]],  # First 10
+                "metadata": {
+                    "total_pages": result.total_pages,
+                    "total_blocks": result.total_blocks,
+                    "scanner_version": result.scanner_version
+                }
+            }, ensure_ascii=False, default=str),
+            mimetype="application/json",
+            status_code=200
+        )
+
+    except Exception as e:
+        logging.exception(f"Manual scan error: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500
+        )
 
 
 @app.event_grid_trigger(arg_name="event")
@@ -104,12 +163,10 @@ def process_tilbudsavis(event: func.EventGridEvent):
 
     Triggered by BlobCreated events on 'tilbudsaviser' container.
     Expected filename format: {butik}_{year}-uge{week}.pdf
-    Examples: netto_2025-uge51.pdf, rema_2025-uge51.pdf
     """
-    _lazy_import()  # Load dependencies
+    _lazy_import()
     logging.info(f"Event Grid trigger fired: {event.event_type}")
     logging.info(f"Event subject: {event.subject}")
-    logging.info(f"Event data: {event.get_json()}")
 
     # Only process BlobCreated events
     if event.event_type != "Microsoft.Storage.BlobCreated":
@@ -124,7 +181,7 @@ def process_tilbudsavis(event: func.EventGridEvent):
         logging.info(f"Ignoring blob not in tilbudsaviser container: {blob_url}")
         return
 
-    # Extract filename from subject (format: /blobServices/default/containers/tilbudsaviser/blobs/filename.pdf)
+    # Extract filename
     subject = event.subject
     filename = subject.split("/blobs/")[-1] if "/blobs/" in subject else None
 
@@ -139,283 +196,267 @@ def process_tilbudsavis(event: func.EventGridEvent):
         butik, gyldig_fra, gyldig_til = parse_filename(filename)
         logging.info(f"Parsed: butik={butik}, fra={gyldig_fra}, til={gyldig_til}")
 
-        # Download PDF content from blob storage
+        # Download PDF content
         pdf_content = download_blob(filename)
         if not pdf_content:
             logging.error(f"Failed to download blob: {filename}")
+            move_blob(filename, "failed", {"error": "Download failed"})
             return
 
-        logging.info(f"Downloaded {len(pdf_content)} bytes from blob")
+        logging.info(f"Downloaded {len(pdf_content)} bytes")
 
-        # Process PDF and extract deals using production scanners
-        tilbud, scan_metadata = extract_deals_from_pdf(pdf_content, butik)
-        logging.info(f"Extracted {len(tilbud)} deals from PDF")
+        # Scan with new pipeline
+        scan_result = scan_pdf_v2(pdf_content, butik)
 
-        if not tilbud:
-            logging.warning(f"No deals extracted from {filename}")
-            move_blob(filename, "failed", {"error": "No deals extracted"})
+        # Use scanner's detected values if available
+        if scan_result.retailer:
+            butik = scan_result.retailer
+        if scan_result.valid_from:
+            gyldig_fra = scan_result.valid_from
+        if scan_result.valid_to:
+            gyldig_til = scan_result.valid_to
+
+        logging.info(f"Extracted {len(scan_result.offers)} offers")
+
+        if not scan_result.offers:
+            logging.warning(f"No offers extracted from {filename}")
+            move_blob(filename, "failed", {"error": "No offers extracted"})
             return
 
-        # Use scanner's validity dates if available (more accurate)
-        if scan_metadata.get('gyldig_fra'):
-            gyldig_fra = scan_metadata['gyldig_fra']
-        if scan_metadata.get('gyldig_til'):
-            gyldig_til = scan_metadata['gyldig_til']
+        # Upload to API (v2 format)
+        success = upload_to_api_v2(
+            butik=butik,
+            gyldig_fra=gyldig_fra,
+            gyldig_til=gyldig_til,
+            kilde_fil=filename,
+            scan_result=scan_result
+        )
 
-        # Upload to API with enhanced metadata
-        upload_result = upload_to_api(butik, gyldig_fra, gyldig_til, filename, tilbud, scan_metadata)
+        if success:
+            # Count auto-published vs needs_review
+            auto_published = sum(1 for o in scan_result.offers if o.status == "published")
+            needs_review = sum(1 for o in scan_result.offers if o.status == "needs_review")
 
-        if upload_result:
-            logging.info(f"Successfully uploaded {len(tilbud)} deals for {butik}")
+            logging.info(f"Uploaded: {auto_published} auto-published, {needs_review} needs review")
             move_blob(filename, "processed", {
-                "processedAt": datetime.utcnow().isoformat(),
-                "dealsExtracted": str(len(tilbud)),
-                "highConfidence": str(scan_metadata.get('hoj_konfidens', 0)),
-                "scannerVersion": scan_metadata.get('scanner_version', 'unknown')
+                "processedAt": _datetime.utcnow().isoformat(),
+                "offersExtracted": str(len(scan_result.offers)),
+                "autoPublished": str(auto_published),
+                "needsReview": str(needs_review),
+                "scannerVersion": scan_result.scanner_version
             })
         else:
-            logging.error(f"Failed to upload deals for {filename}")
+            logging.error(f"Failed to upload offers for {filename}")
             move_blob(filename, "failed", {"error": "API upload failed"})
 
     except ValueError as e:
-        logging.error(f"Invalid filename format: {filename} - {str(e)}")
+        logging.error(f"Invalid filename format: {filename} - {e}")
         move_blob(filename, "failed", {"error": str(e)})
     except Exception as e:
-        logging.exception(f"Error processing {filename}: {str(e)}")
+        logging.exception(f"Error processing {filename}: {e}")
         move_blob(filename, "failed", {"error": str(e)})
 
 
-def download_blob(filename: str) -> bytes:
-    """Download blob content from tilbudsaviser container."""
-    if not STORAGE_CONNECTION:
-        logging.error("Storage connection not configured")
-        return None
-
-    if _BlobServiceClient is None:
-        logging.error("BlobServiceClient not available")
-        return None
-
-    try:
-        blob_service = _BlobServiceClient.from_connection_string(STORAGE_CONNECTION)
-        container_client = blob_service.get_container_client("tilbudsaviser")
-        blob_client = container_client.get_blob_client(filename)
-
-        download_stream = blob_client.download_blob()
-        return download_stream.readall()
-
-    except Exception as e:
-        logging.exception(f"Error downloading blob {filename}: {str(e)}")
-        return None
-
-
-def parse_filename(filename: str) -> tuple:
+def scan_pdf_v2(pdf_content: bytes, butik: str):
     """
-    Parse filename to extract store and validity period.
+    Scan PDF using v2.0 pipeline.
 
-    Expected format: {butik}_{year}-uge{week}.pdf
-    Returns: (butik, gyldig_fra, gyldig_til)
+    Returns ScanResult with all extracted offers.
     """
-    # Remove .pdf extension
-    name = filename.lower().replace('.pdf', '')
+    if not SCANNER_AVAILABLE or _Scanner is None:
+        logging.error("Scanner v2.0 not available")
+        raise RuntimeError("Scanner not available")
 
-    # Match pattern: butik_year-ugeXX
-    match = re.match(r'^([a-z0-9]+)_(\d{4})-uge(\d{1,2})$', name)
-    if not match:
-        raise ValueError(f"Invalid filename format. Expected: butik_year-ugeXX.pdf, got: {filename}")
+    # Initialize scanner with OpenAI credentials
+    scanner = _Scanner(
+        openai_api_key=OPENAI_API_KEY,
+        openai_endpoint=OPENAI_ENDPOINT,
+        enable_cropping=True  # Enable bbox cropping for Review UI
+    )
 
-    butik = match.group(1)
-    year = int(match.group(2))
-    week = int(match.group(3))
+    # Run scan
+    result = scanner.scan(pdf_content, source_file=butik)
 
-    # Validate store
-    valid_stores = ['netto', 'rema', 'foetex', 'bilka', 'superbrugsen', 'spar', '365discount']
-    if butik not in valid_stores:
-        raise ValueError(f"Unknown store: {butik}. Valid stores: {', '.join(valid_stores)}")
-
-    # Calculate week dates (Monday to Sunday)
-    # ISO week date: week 1 is the week containing Jan 4
-    jan4 = _datetime(year, 1, 4)
-    week_start = jan4 - _timedelta(days=jan4.weekday())  # Monday of week 1
-    gyldig_fra = week_start + _timedelta(weeks=week - 1)
-    gyldig_til = gyldig_fra + _timedelta(days=6)
-
-    return butik, gyldig_fra.strftime('%Y-%m-%d'), gyldig_til.strftime('%Y-%m-%d')
+    return result
 
 
-def extract_deals_fallback(pdf_content: bytes, butik: str) -> list:
-    """Simple fallback extraction when production scanners are not available."""
-    try:
-        import fitz
-    except ImportError:
-        logging.error("PyMuPDF not installed")
-        return []
+def offer_to_dict(offer) -> dict:
+    """Convert ScannedOffer to dictionary for API upload."""
+    return {
+        # Raw text
+        "product_text_raw": offer.product_text_raw,
 
-    tilbud = []
-    try:
-        doc = fitz.open(stream=pdf_content, filetype="pdf")
-        logging.info(f"Fallback: PDF has {len(doc)} pages")
+        # Normalized fields
+        "brand_norm": offer.brand_norm,
+        "product_norm": offer.product_norm,
+        "variant_norm": offer.variant_norm,
+        "category": offer.category,
 
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            text = page.get_text()
-            lines = text.split('\n')
+        # Amount
+        "net_amount_value": offer.net_amount_value,
+        "net_amount_unit": offer.net_amount_unit,
+        "pack_count": offer.pack_count,
+        "container_type": offer.container_type,
 
-            for line in lines:
-                line = line.strip()
-                if not line or len(line) < 3:
-                    continue
+        # Price
+        "price_value": offer.price_value,
+        "deposit_value": offer.deposit_value,
+        "price_excl_deposit": offer.price_excl_deposit,
+        "unit_price_value": offer.unit_price_value,
+        "unit_price_unit": offer.unit_price_unit,
 
-                # Simple price pattern matching
-                price_match = re.search(r'(\d+)[,.](\d{2})(?:\s*kr)?\.?$|(\d+)\.-$', line)
-                if price_match:
-                    if price_match.group(3):
-                        price = float(price_match.group(3))
-                    else:
-                        price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+        # Identity
+        "sku_key": offer.sku_key,
 
-                    product_text = line[:price_match.start()].strip()
-                    if product_text and len(product_text) > 2 and price > 0:
-                        tilbud.append({
-                            "produkt": product_text,
-                            "total_pris": price,
-                            "pris_per_enhed": price,
-                            "enhed": "stk",
-                            "maengde": "1 stk",
-                            "kategori": "Andet",
-                            "konfidens": 0.5,  # Low confidence for fallback
-                            "side": page_num + 1
-                        })
+        # Comment
+        "comment": offer.comment,
 
-        doc.close()
-    except Exception as e:
-        logging.exception(f"Error in fallback extraction: {str(e)}")
+        # Confidence
+        "confidence": offer.confidence,
+        "confidence_details": offer.confidence_details,
+        "confidence_reasons": offer.confidence_reasons,
+        "status": offer.status,
 
-    return tilbud
+        # Visual
+        "crop_url": offer.crop_url,
+
+        # Trace
+        "trace": offer.trace
+    }
 
 
-def extract_deals_from_pdf(pdf_content: bytes, butik: str) -> tuple:
-    """
-    Extract deals from PDF content using production scanners.
-
-    Uses the sophisticated scanner implementations with:
-    - Font-size based price detection
-    - Block-based parsing with column detection
-    - Skip patterns to filter non-product text
-    - Confidence scoring
-    - Duplicate detection
-
-    Args:
-        pdf_content: PDF file as bytes
-        butik: Store identifier (netto, rema, foetex, bilka, etc.)
-
-    Returns:
-        Tuple of (tilbud list, scanner_metadata dict)
-    """
-    # Check if scanners are available
-    if not SCANNERS_AVAILABLE:
-        logging.warning("Production scanners not available, using fallback extraction")
-        return extract_deals_fallback(pdf_content, butik), {'scanner_version': 'fallback'}
-
-    temp_path = None
-    try:
-        # Save PDF to temp file (scanners expect file paths)
-        with _tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
-            f.write(pdf_content)
-            temp_path = f.name
-
-        logging.info(f"Saved PDF to temp file: {temp_path}")
-
-        # Auto-detect store if needed (fallback)
-        if not butik:
-            butik = _detect_store(pdf_content)
-            logging.info(f"Auto-detected store: {butik}")
-
-        # Get the appropriate scanner for this store
-        scanner = _get_scanner(butik)
-        logging.info(f"Using scanner: {type(scanner).__name__}")
-
-        # Run the scan
-        result = scanner.scan(temp_path)
-
-        # Extract deals and metadata
-        tilbud = result.get('tilbud', [])
-        metadata = {
-            'scanner_version': result.get('scanner_version', 'unknown'),
-            'antal_sider': result.get('antal_sider', 0),
-            'antal_tilbud': len(tilbud),
-            'hoj_konfidens': sum(1 for t in tilbud if t.get('konfidens', 0) >= 0.8),
-            'kategorier': list(set(t.get('kategori', 'Andet') for t in tilbud)),
-            'uge': result.get('uge'),
-            'gyldig_fra': result.get('gyldig_fra'),
-            'gyldig_til': result.get('gyldig_til')
-        }
-
-        logging.info(f"Scan complete: {len(tilbud)} deals, {metadata['hoj_konfidens']} high confidence")
-
-        return tilbud, metadata
-
-    except Exception as e:
-        logging.exception(f"Error scanning PDF: {str(e)}")
-        return [], {}
-
-    finally:
-        # Clean up temp file
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.unlink(temp_path)
-                logging.debug(f"Cleaned up temp file: {temp_path}")
-            except Exception as e:
-                logging.warning(f"Failed to clean up temp file: {e}")
-
-
-def upload_to_api(butik: str, gyldig_fra: str, gyldig_til: str, kilde_fil: str, tilbud: list, scan_metadata: dict = None) -> bool:
-    """Upload extracted deals to the API with enhanced metadata."""
+def upload_to_api_v2(butik: str, gyldig_fra: str, gyldig_til: str,
+                     kilde_fil: str, scan_result, max_retries: int = 3) -> bool:
+    """Upload scan results to API using v2 format with retry logic."""
 
     if not API_KEY:
         logging.error("DEALS_API_KEY not configured")
         return False
 
-    # Build metadata with scanner information
-    meta = {
-        "butik": butik,
-        "gyldig_fra": gyldig_fra,
-        "gyldig_til": gyldig_til,
-        "kilde_fil": kilde_fil
-    }
-
-    # Add scanner metadata if available
-    if scan_metadata:
-        meta.update({
-            "scanner_version": scan_metadata.get('scanner_version', 'unknown'),
-            "antal_sider": scan_metadata.get('antal_sider', 0),
-            "uge": scan_metadata.get('uge')
-        })
-
-    # Build statistics
-    statistik = {
-        "antal_tilbud": len(tilbud),
-        "hoj_konfidens": sum(1 for t in tilbud if t.get('konfidens', 0) >= 0.8),
-        "kategorier": list(set(t.get('kategori', 'Andet') for t in tilbud))
-    }
-
-    payload = {
-        "meta": meta,
-        "statistik": statistik,
-        "tilbud": tilbud
-    }
-
-    # Debug logging for upload payload
-    logging.info(f"Upload payload meta: {meta}")
-    logging.info(f"Upload payload statistik: {statistik}")
-    logging.info(f"Upload payload tilbud count: {len(tilbud)}")
-    if tilbud:
-        # Log first 3 tilbud items for debugging
-        for i, t in enumerate(tilbud[:3]):
-            logging.info(f"Tilbud[{i}]: produkt={t.get('produkt', 'N/A')[:50]}, pris={t.get('total_pris')}, konfidens={t.get('konfidens')}")
-
     if _requests is None:
         logging.error("requests module not available")
         return False
+
+    # Build v2 payload
+    payload = {
+        "version": "2.0",
+        "meta": {
+            "retailer": butik,
+            "valid_from": gyldig_fra,
+            "valid_to": gyldig_til,
+            "source_file": kilde_fil,
+            "retailer_confidence": scan_result.retailer_confidence,
+            "validity_confidence": scan_result.validity_confidence
+        },
+        "scan_stats": {
+            "total_pages": scan_result.total_pages,
+            "total_blocks": scan_result.total_blocks,
+            "offers_detected": scan_result.offers_detected,
+            "offers_extracted": len(scan_result.offers),
+            "scanner_version": scan_result.scanner_version
+        },
+        "offers": [offer_to_dict(o) for o in scan_result.offers]
+    }
+
+    # Log summary
+    logging.info(f"Uploading {len(scan_result.offers)} offers for {butik}")
+
+    # Log first few offers for debugging
+    for i, offer in enumerate(scan_result.offers[:3]):
+        logging.info(
+            f"  [{i}] {offer.product_norm} - {offer.price_value} kr "
+            f"(conf={offer.confidence:.2f}, status={offer.status})"
+        )
+
+    import time
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                wait_time = 2 ** attempt  # Exponential backoff: 2, 4, 8 seconds
+                logging.info(f"Retry {attempt}/{max_retries} after {wait_time}s...")
+                time.sleep(wait_time)
+
+            response = _requests.post(
+                f"{API_BASE_URL}/api/management/upload/v2",
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": API_KEY
+                },
+                timeout=120  # Longer timeout for large payloads
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                logging.info(f"API SUCCESS: {result}")
+                return True
+            elif response.status_code == 404:
+                # Fallback to v1 endpoint if v2 not available
+                logging.info("V2 endpoint not found, trying v1 fallback...")
+                return upload_to_api_v1_fallback(butik, gyldig_fra, gyldig_til,
+                                                  kilde_fil, scan_result)
+            elif response.status_code >= 500:
+                # Server error - retry
+                last_error = f"Server error: {response.status_code}"
+                logging.warning(f"API server error (attempt {attempt+1}): {response.status_code}")
+                continue
+            else:
+                # Client error - don't retry
+                logging.error(f"API client error: {response.status_code} - {response.text}")
+                return False
+
+        except _requests.exceptions.Timeout:
+            last_error = "Request timeout"
+            logging.warning(f"API timeout (attempt {attempt+1}), trying v1 fallback...")
+            # V2 endpoint times out, fallback to v1
+            return upload_to_api_v1_fallback(butik, gyldig_fra, gyldig_til,
+                                              kilde_fil, scan_result)
+        except _requests.exceptions.ConnectionError as e:
+            last_error = f"Connection error: {e}"
+            logging.warning(f"API connection error (attempt {attempt+1}): {e}")
+            continue
+        except Exception as e:
+            last_error = str(e)
+            logging.exception(f"Unexpected error calling API: {e}")
+            return False
+
+    logging.error(f"API upload failed after {max_retries} attempts: {last_error}")
+    return False
+
+
+def upload_to_api_v1_fallback(butik: str, gyldig_fra: str, gyldig_til: str,
+                               kilde_fil: str, scan_result) -> bool:
+    """Fallback to v1 API format for backwards compatibility."""
+
+    # Convert v2 offers to v1 format
+    tilbud_v1 = []
+    for offer in scan_result.offers:
+        tilbud_v1.append({
+            "produkt": offer.product_norm or offer.product_text_raw,
+            "total_pris": offer.price_value,
+            "pris_per_enhed": offer.unit_price_value,
+            "enhed": offer.unit_price_unit or "stk",
+            "maengde": f"{offer.net_amount_value} {offer.net_amount_unit}" if offer.net_amount_value else None,
+            "kategori": offer.category,
+            "konfidens": offer.confidence,
+            "side": offer.trace.get("page", 0) + 1 if offer.trace else 1
+        })
+
+    payload = {
+        "meta": {
+            "butik": butik,
+            "gyldig_fra": gyldig_fra,
+            "gyldig_til": gyldig_til,
+            "kilde_fil": kilde_fil
+        },
+        "statistik": {
+            "antal_tilbud": len(tilbud_v1),
+            "hoj_konfidens": sum(1 for t in tilbud_v1 if t.get("konfidens", 0) >= 0.9)
+        },
+        "tilbud": tilbud_v1
+    }
 
     try:
         response = _requests.post(
@@ -429,61 +470,90 @@ def upload_to_api(butik: str, gyldig_fra: str, gyldig_til: str, kilde_fil: str, 
         )
 
         if response.status_code == 200:
-            result = response.json()
-            imported_count = result.get('tilbud_imported', 'unknown')
-            logging.info(f"API SUCCESS: {imported_count} tilbud imported (sent {len(tilbud)})")
-            logging.info(f"API response: {result}")
-
-            # CRITICAL: Check if API actually stored the deals
-            if imported_count != len(tilbud):
-                logging.warning(f"MISMATCH: Sent {len(tilbud)} but API imported {imported_count}")
-
+            logging.info(f"V1 fallback SUCCESS: {response.json()}")
             return True
         else:
-            logging.error(f"API error: {response.status_code} - {response.text}")
+            logging.error(f"V1 fallback error: {response.status_code}")
             return False
 
     except Exception as e:
-        logging.exception(f"Error calling API: {str(e)}")
+        logging.exception(f"V1 fallback error: {e}")
         return False
 
 
+def download_blob(filename: str) -> bytes:
+    """Download blob content from tilbudsaviser container."""
+    if not STORAGE_CONNECTION or _BlobServiceClient is None:
+        logging.error("Blob storage not configured")
+        return None
+
+    try:
+        blob_service = _BlobServiceClient.from_connection_string(STORAGE_CONNECTION)
+        container_client = blob_service.get_container_client("tilbudsaviser")
+        blob_client = container_client.get_blob_client(filename)
+        return blob_client.download_blob().readall()
+
+    except Exception as e:
+        logging.exception(f"Error downloading blob: {e}")
+        return None
+
+
+def parse_filename(filename: str) -> tuple:
+    """
+    Parse filename to extract store and validity period.
+    Format: {butik}_{year}-uge{week}.pdf
+    """
+    name = filename.lower().replace('.pdf', '')
+
+    match = re.match(r'^([a-z0-9]+)_(\d{4})-uge(\d{1,2})$', name)
+    if not match:
+        raise ValueError(f"Invalid format. Expected: butik_year-ugeXX.pdf")
+
+    butik = match.group(1)
+    year = int(match.group(2))
+    week = int(match.group(3))
+
+    # Validate store
+    valid_stores = ['netto', 'rema', 'foetex', 'bilka', 'superbrugsen', 'spar', '365discount']
+    if butik not in valid_stores:
+        raise ValueError(f"Unknown store: {butik}")
+
+    # Calculate week dates
+    jan4 = _datetime(year, 1, 4)
+    week_start = jan4 - _timedelta(days=jan4.weekday())
+    gyldig_fra = week_start + _timedelta(weeks=week - 1)
+    gyldig_til = gyldig_fra + _timedelta(days=6)
+
+    return butik, gyldig_fra.strftime('%Y-%m-%d'), gyldig_til.strftime('%Y-%m-%d')
+
+
 def move_blob(filename: str, destination: str, metadata: dict = None):
-    """Move blob from tilbudsaviser to processed or failed container."""
-
-    if not STORAGE_CONNECTION:
-        logging.warning("Storage connection not configured, skipping blob move")
-        return
-
-    if _BlobServiceClient is None:
-        logging.warning("BlobServiceClient not available, skipping blob move")
+    """Move blob to processed or failed container."""
+    if not STORAGE_CONNECTION or _BlobServiceClient is None:
+        logging.warning("Blob storage not configured")
         return
 
     try:
         blob_service = _BlobServiceClient.from_connection_string(STORAGE_CONNECTION)
 
-        # Source blob
+        # Source
         source_container = blob_service.get_container_client("tilbudsaviser")
         source_blob = source_container.get_blob_client(filename)
 
-        # Destination blob with folder structure (year/week/)
+        # Destination with folder structure
         now = _datetime.utcnow()
         dest_path = f"{now.year}/uge{now.isocalendar()[1]:02d}/{filename}"
 
         dest_container = blob_service.get_container_client(destination)
         dest_blob = dest_container.get_blob_client(dest_path)
 
-        # Copy to destination
+        # Copy and delete
         dest_blob.start_copy_from_url(source_blob.url)
-
-        # Set metadata if provided
         if metadata:
             dest_blob.set_blob_metadata(metadata)
-
-        # Delete source
         source_blob.delete_blob()
 
         logging.info(f"Moved {filename} to {destination}/{dest_path}")
 
     except Exception as e:
-        logging.exception(f"Error moving blob: {str(e)}")
+        logging.exception(f"Error moving blob: {e}")

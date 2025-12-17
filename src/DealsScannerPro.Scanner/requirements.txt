@@ -7,8 +7,15 @@ azure-functions>=1.17.0
 # Azure Storage
 azure-storage-blob>=12.19.0
 
-# PDF Processing
+# Azure AI Document Intelligence (Layout extraction)
+azure-ai-documentintelligence>=1.0.0b1
+
+# Azure OpenAI (GPT normalization)
+openai>=1.0.0
+
+# PDF Processing (for bbox cropping)
 PyMuPDF>=1.23.0
+Pillow>=10.0.0
 
 # HTTP Client
 requests>=2.31.0
