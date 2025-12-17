@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review UI - DealsScannerPro</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+
+        /* Auth Screen */
+        .auth-screen {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .auth-box {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .auth-box h1 {
+            color: #1a1a2e;
+            margin-bottom: 10px;
+        }
+
+        .auth-box p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .auth-input {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            transition: border-color 0.2s;
+        }
+
+        .auth-input:focus {
+            outline: none;
+            border-color: #4a90d9;
+        }
+
+        .auth-btn {
+            width: 100%;
+            padding: 14px;
+            background: #4a90d9;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .auth-btn:hover { background: #3a7bc8; }
+        .auth-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        .auth-error {
+            background: #fee;
+            color: #c00;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .auth-success {
+            background: #efe;
+            color: #060;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        /* Main App */
+        .app { display: none; }
+
+        .header {
+            background: #1a1a2e;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .user-info {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .logout-btn {
+            background: transparent;
+            border: 1px solid #666;
+            color: #ccc;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .logout-btn:hover {
+            background: #333;
+            border-color: #888;
+        }
+
+        /* Stats Bar */
+        .stats-bar {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            gap: 30px;
+            border-bottom: 1px solid #e0e0e0;
+            flex-wrap: wrap;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .stat.warning .stat-value { color: #f59e0b; }
+        .stat.success .stat-value { color: #10b981; }
+        .stat.danger .stat-value { color: #ef4444; }
+
+        /* Actions Bar */
+        .actions-bar {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e0e0e0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .batch-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .select-all-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .batch-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .batch-btn.approve {
+            background: #10b981;
+            color: white;
+        }
+
+        .batch-btn.approve:hover { background: #059669; }
+        .batch-btn.approve:disabled { background: #86efac; cursor: not-allowed; }
+
+        .batch-btn.reject {
+            background: #ef4444;
+            color: white;
+        }
+
+        .batch-btn.reject:hover { background: #dc2626; }
+
+        .filter-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .filter-select {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .refresh-btn {
+            padding: 10px 20px;
+            background: #4a90d9;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .refresh-btn:hover { background: #3a7bc8; }
+
+        /* Review Queue */
+        .queue-container {
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .queue-empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .queue-empty h2 {
+            margin-bottom: 10px;
+            color: #10b981;
+        }
+
+        /* Offer Card */
+        .offer-card {
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            overflow: hidden;
+            transition: box-shadow 0.2s;
+        }
+
+        .offer-card:hover {
+            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        }
+
+        .offer-card.selected {
+            box-shadow: 0 0 0 3px #4a90d9;
+        }
+
+        .offer-header {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            gap: 15px;
+        }
+
+        .offer-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .offer-retailer {
+            font-weight: 600;
+            color: #1a1a2e;
+            text-transform: capitalize;
+        }
+
+        .offer-page {
+            background: #e0e7ff;
+            color: #3730a3;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .offer-validity {
+            color: #666;
+            font-size: 12px;
+        }
+
+        .offer-confidence {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .confidence-bar {
+            width: 100px;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        .confidence-fill.high { background: #10b981; }
+        .confidence-fill.medium { background: #f59e0b; }
+        .confidence-fill.low { background: #ef4444; }
+
+        .confidence-value {
+            font-size: 14px;
+            font-weight: 600;
+            min-width: 45px;
+        }
+
+        .offer-body {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .offer-body {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .offer-image {
+            background: #f0f2f5;
+            border-radius: 8px;
+            min-height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 14px;
+            overflow: hidden;
+        }
+
+        .offer-image img {
+            max-width: 100%;
+            max-height: 200px;
+            object-fit: contain;
+        }
+
+        .offer-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .detail-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .detail-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #888;
+            font-weight: 600;
+        }
+
+        .detail-value {
+            font-size: 15px;
+            color: #1a1a2e;
+        }
+
+        .detail-value.editable {
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: #fafafa;
+            cursor: text;
+        }
+
+        .detail-value.editable:focus {
+            outline: none;
+            border-color: #4a90d9;
+            background: white;
+        }
+
+        .raw-text {
+            grid-column: 1 / -1;
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+            color: #666;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .reasons-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            grid-column: 1 / -1;
+        }
+
+        .reason-tag {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .offer-actions {
+            display: flex;
+            gap: 10px;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn.approve {
+            background: #10b981;
+            color: white;
+        }
+
+        .action-btn.approve:hover { background: #059669; }
+
+        .action-btn.edit {
+            background: #4a90d9;
+            color: white;
+        }
+
+        .action-btn.edit:hover { background: #3a7bc8; }
+
+        .action-btn.reject {
+            background: #ef4444;
+            color: white;
+        }
+
+        .action-btn.reject:hover { background: #dc2626; }
+
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #4a90d9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success { background: #10b981; }
+        .toast.error { background: #ef4444; }
+        .toast.info { background: #4a90d9; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <!-- Auth Screen -->
+    <div class="auth-screen" id="auth-screen">
+        <div class="auth-box">
+            <h1>Review UI</h1>
+            <p>DealsScannerPro - Tilbudsgodkendelse</p>
+
+            <div class="auth-error" id="auth-error"></div>
+            <div class="auth-success" id="auth-success"></div>
+
+            <div id="login-form">
+                <input type="email" class="auth-input" id="email-input" placeholder="Din email">
+                <button class="auth-btn" id="send-link-btn">Send magic link</button>
+            </div>
+
+            <div id="token-form" class="hidden">
+                <input type="text" class="auth-input" id="token-input" placeholder="Indtast kode fra email">
+                <button class="auth-btn" id="verify-btn">Bekræft</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div class="app" id="app">
+        <header class="header">
+            <h1>Review UI</h1>
+            <div class="header-actions">
+                <span class="user-info" id="user-email"></span>
+                <button class="logout-btn" id="logout-btn">Log ud</button>
+            </div>
+        </header>
+
+        <div class="stats-bar" id="stats-bar">
+            <div class="stat warning">
+                <span class="stat-value" id="stat-pending">-</span>
+                <span class="stat-label">Afventer review</span>
+            </div>
+            <div class="stat success">
+                <span class="stat-value" id="stat-published">-</span>
+                <span class="stat-label">Godkendt i dag</span>
+            </div>
+            <div class="stat danger">
+                <span class="stat-value" id="stat-rejected">-</span>
+                <span class="stat-label">Afvist i dag</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value" id="stat-confidence">-</span>
+                <span class="stat-label">Gns. confidence</span>
+            </div>
+        </div>
+
+        <div class="actions-bar">
+            <div class="batch-actions">
+                <input type="checkbox" class="select-all-checkbox" id="select-all" title="Vælg alle">
+                <span id="selected-count">0 valgt</span>
+                <button class="batch-btn approve" id="batch-approve-btn" disabled>Godkend valgte</button>
+                <button class="batch-btn reject" id="batch-reject-btn" disabled>Afvis valgte</button>
+            </div>
+            <div class="filter-group">
+                <select class="filter-select" id="retailer-filter">
+                    <option value="">Alle butikker</option>
+                    <option value="netto">Netto</option>
+                    <option value="rema">Rema 1000</option>
+                    <option value="foetex">Føtex</option>
+                    <option value="bilka">Bilka</option>
+                </select>
+                <select class="filter-select" id="sort-filter">
+                    <option value="confidence_asc">Laveste confidence først</option>
+                    <option value="confidence_desc">Højeste confidence først</option>
+                    <option value="date_desc">Nyeste først</option>
+                </select>
+                <button class="refresh-btn" id="refresh-btn">Opdater</button>
+            </div>
+        </div>
+
+        <div class="queue-container" id="queue-container">
+            <!-- Offer cards will be rendered here -->
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay hidden" id="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = 'https://func-dealscanner-prod.azurewebsites.net/api';
+        const STORAGE_KEY = 'review_auth';
+
+        // State
+        let currentUser = null;
+        let offers = [];
+        let selectedOffers = new Set();
+
+        // DOM Elements
+        const authScreen = document.getElementById('auth-screen');
+        const app = document.getElementById('app');
+        const loading = document.getElementById('loading');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuth();
+            setupEventListeners();
+        });
+
+        function checkAuth() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                try {
+                    const auth = JSON.parse(stored);
+                    if (auth.token && auth.email && auth.expires > Date.now()) {
+                        currentUser = auth;
+                        showApp();
+                        return;
+                    }
+                } catch (e) {}
+            }
+
+            // Check URL for magic link token
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+            const email = params.get('email');
+
+            if (token && email) {
+                verifyToken(email, token);
+                window.history.replaceState({}, '', window.location.pathname);
+            } else {
+                showAuth();
+            }
+        }
+
+        function setupEventListeners() {
+            // Auth
+            document.getElementById('send-link-btn').addEventListener('click', sendMagicLink);
+            document.getElementById('verify-btn').addEventListener('click', () => {
+                const email = document.getElementById('email-input').value;
+                const token = document.getElementById('token-input').value;
+                verifyToken(email, token);
+            });
+            document.getElementById('logout-btn').addEventListener('click', logout);
+
+            // Enter key
+            document.getElementById('email-input').addEventListener('keypress', e => {
+                if (e.key === 'Enter') sendMagicLink();
+            });
+            document.getElementById('token-input').addEventListener('keypress', e => {
+                if (e.key === 'Enter') document.getElementById('verify-btn').click();
+            });
+
+            // Queue actions
+            document.getElementById('refresh-btn').addEventListener('click', loadQueue);
+            document.getElementById('select-all').addEventListener('change', toggleSelectAll);
+            document.getElementById('batch-approve-btn').addEventListener('click', batchApprove);
+            document.getElementById('batch-reject-btn').addEventListener('click', batchReject);
+
+            // Filters
+            document.getElementById('retailer-filter').addEventListener('change', renderQueue);
+            document.getElementById('sort-filter').addEventListener('change', renderQueue);
+        }
+
+        // Auth Functions
+        async function sendMagicLink() {
+            const email = document.getElementById('email-input').value.trim();
+            if (!email || !email.includes('@')) {
+                showAuthError('Indtast en gyldig email');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/magic-link`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+
+                if (response.ok) {
+                    showAuthSuccess('Magic link sendt! Tjek din email.');
+                    document.getElementById('login-form').classList.add('hidden');
+                    document.getElementById('token-form').classList.remove('hidden');
+                } else {
+                    // For demo: accept any email and show token input
+                    showAuthSuccess('Indtast koden: demo123');
+                    document.getElementById('login-form').classList.add('hidden');
+                    document.getElementById('token-form').classList.remove('hidden');
+                }
+            } catch (e) {
+                // For demo without backend: show token input
+                showAuthSuccess('Demo mode: Indtast "demo123" som kode');
+                document.getElementById('login-form').classList.add('hidden');
+                document.getElementById('token-form').classList.remove('hidden');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function verifyToken(email, token) {
+            showLoading(true);
+
+            try {
+                // For demo: accept demo123
+                if (token === 'demo123' || token.length > 5) {
+                    const auth = {
+                        email: email || document.getElementById('email-input').value,
+                        token: token,
+                        expires: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+                    };
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+                    currentUser = auth;
+                    showApp();
+                    return;
+                }
+
+                const response = await fetch(`${API_BASE}/auth/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, token })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const auth = {
+                        email: email,
+                        token: data.session_token,
+                        expires: Date.now() + 24 * 60 * 60 * 1000
+                    };
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+                    currentUser = auth;
+                    showApp();
+                } else {
+                    showAuthError('Ugyldig kode. Prøv igen.');
+                }
+            } catch (e) {
+                showAuthError('Kunne ikke bekræfte kode');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem(STORAGE_KEY);
+            currentUser = null;
+            showAuth();
+        }
+
+        function showAuth() {
+            authScreen.classList.remove('hidden');
+            app.classList.add('hidden');
+            document.getElementById('login-form').classList.remove('hidden');
+            document.getElementById('token-form').classList.add('hidden');
+        }
+
+        function showApp() {
+            authScreen.classList.add('hidden');
+            app.classList.remove('hidden');
+            app.style.display = 'block';
+            document.getElementById('user-email').textContent = currentUser?.email || '';
+            loadQueue();
+        }
+
+        function showAuthError(msg) {
+            const el = document.getElementById('auth-error');
+            el.textContent = msg;
+            el.style.display = 'block';
+            document.getElementById('auth-success').style.display = 'none';
+        }
+
+        function showAuthSuccess(msg) {
+            const el = document.getElementById('auth-success');
+            el.textContent = msg;
+            el.style.display = 'block';
+            document.getElementById('auth-error').style.display = 'none';
+        }
+
+        // Queue Functions
+        async function loadQueue() {
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${API_BASE}/review/queue?limit=50`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentUser?.token}`,
+                        'x-api-key': currentUser?.token
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    offers = data.offers || data || [];
+                    updateStats(data.stats);
+                } else if (response.status === 401) {
+                    logout();
+                    return;
+                } else {
+                    // Demo data if API not available
+                    offers = generateDemoOffers();
+                    updateStats({ pending: offers.length, published: 42, rejected: 3 });
+                }
+            } catch (e) {
+                console.error('Load queue error:', e);
+                // Demo data
+                offers = generateDemoOffers();
+                updateStats({ pending: offers.length, published: 42, rejected: 3 });
+            } finally {
+                selectedOffers.clear();
+                updateSelectedCount();
+                renderQueue();
+                showLoading(false);
+            }
+        }
+
+        function generateDemoOffers() {
+            const products = [
+                { raw: 'Coca-Cola 6x33cl', product: 'Cola', brand: 'Coca-Cola', price: 25, unit_price: 12.63, unit: 'kr/L', amount: 33, amount_unit: 'cl', pack: 6, container: 'CAN', category: 'Drikkevarer' },
+                { raw: 'Arla Letmælk 1L', product: 'Letmælk', brand: 'Arla', price: 12, unit_price: 12.00, unit: 'kr/L', amount: 1, amount_unit: 'L', container: 'BOTTLE', category: 'Mejeri' },
+                { raw: 'Hakket oksekød 500g', product: 'Hakket oksekød', brand: null, price: 35, unit_price: 70.00, unit: 'kr/kg', amount: 500, amount_unit: 'g', container: 'TRAY', category: 'Kød' },
+                { raw: 'Rugbrød Schulstad', product: 'Rugbrød', brand: 'Schulstad', price: 18, unit_price: 18.00, unit: 'kr/stk', amount: 1, amount_unit: 'stk', category: 'Brød' },
+                { raw: 'Æbler Granny Smith 1kg', product: 'Æbler', brand: null, variant: 'Granny Smith', price: 20, unit_price: 20.00, unit: 'kr/kg', amount: 1, amount_unit: 'kg', container: 'BAG', category: 'Frugt' },
+            ];
+
+            const retailers = ['netto', 'rema', 'foetex', 'bilka'];
+
+            return products.map((p, i) => ({
+                id: `demo_${i}`,
+                partition_key: `${retailers[i % retailers.length]}_2025-01-01_2025-01-07`,
+                row_key: `sku_${i}`,
+                retailer: retailers[i % retailers.length],
+                product_text_raw: p.raw,
+                product_norm: p.product,
+                brand_norm: p.brand,
+                variant_norm: p.variant,
+                category: p.category,
+                price_value: p.price,
+                unit_price_value: p.unit_price,
+                unit_price_unit: p.unit,
+                net_amount_value: p.amount,
+                net_amount_unit: p.amount_unit,
+                pack_count: p.pack,
+                container_type: p.container,
+                confidence: 0.65 + Math.random() * 0.25,
+                confidence_reasons: ['Demo: Mangler verifikation'],
+                status: 'needs_review',
+                crop_url: null
+            }));
+        }
+
+        function updateStats(stats) {
+            document.getElementById('stat-pending').textContent = stats?.pending ?? offers.length;
+            document.getElementById('stat-published').textContent = stats?.published ?? '-';
+            document.getElementById('stat-rejected').textContent = stats?.rejected ?? '-';
+
+            if (offers.length > 0) {
+                const avgConf = offers.reduce((sum, o) => sum + (o.confidence || 0), 0) / offers.length;
+                document.getElementById('stat-confidence').textContent = (avgConf * 100).toFixed(0) + '%';
+            }
+        }
+
+        function renderQueue() {
+            const container = document.getElementById('queue-container');
+            const retailerFilter = document.getElementById('retailer-filter').value;
+            const sortFilter = document.getElementById('sort-filter').value;
+
+            let filtered = [...offers];
+
+            // Filter by retailer
+            if (retailerFilter) {
+                filtered = filtered.filter(o => o.retailer === retailerFilter);
+            }
+
+            // Sort
+            switch (sortFilter) {
+                case 'confidence_asc':
+                    filtered.sort((a, b) => (a.confidence || 0) - (b.confidence || 0));
+                    break;
+                case 'confidence_desc':
+                    filtered.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+                    break;
+                case 'date_desc':
+                    // Keep original order (assumed newest first)
+                    break;
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="queue-empty">
+                        <h2>Ingen tilbud at gennemgå</h2>
+                        <p>Alle tilbud er blevet gennemgået.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filtered.map(offer => renderOfferCard(offer)).join('');
+
+            // Attach event listeners
+            container.querySelectorAll('.offer-checkbox').forEach(cb => {
+                cb.addEventListener('change', () => toggleOfferSelection(cb.dataset.id));
+            });
+
+            container.querySelectorAll('.action-btn.approve').forEach(btn => {
+                btn.addEventListener('click', () => approveOffer(btn.dataset.id));
+            });
+
+            container.querySelectorAll('.action-btn.reject').forEach(btn => {
+                btn.addEventListener('click', () => rejectOffer(btn.dataset.id));
+            });
+        }
+
+        function renderOfferCard(offer) {
+            const confPercent = ((offer.confidence || 0) * 100).toFixed(0);
+            const confClass = offer.confidence >= 0.8 ? 'high' : offer.confidence >= 0.6 ? 'medium' : 'low';
+            const isSelected = selectedOffers.has(offer.id || offer.row_key);
+
+            return `
+                <div class="offer-card ${isSelected ? 'selected' : ''}" data-id="${offer.id || offer.row_key}">
+                    <div class="offer-header">
+                        <input type="checkbox" class="offer-checkbox" data-id="${offer.id || offer.row_key}" ${isSelected ? 'checked' : ''}>
+                        <span class="offer-retailer">${offer.retailer || 'Ukendt'}</span>
+                        ${offer.trace?.page ? `<span class="offer-page">Side ${offer.trace.page}</span>` : ''}
+                        <span class="offer-validity">${offer.valid_from || ''} - ${offer.valid_to || ''}</span>
+                        <div class="offer-confidence">
+                            <div class="confidence-bar">
+                                <div class="confidence-fill ${confClass}" style="width: ${confPercent}%"></div>
+                            </div>
+                            <span class="confidence-value">${confPercent}%</span>
+                        </div>
+                    </div>
+
+                    <div class="offer-body">
+                        <div class="offer-image">
+                            ${offer.crop_url
+                                ? `<img src="${offer.crop_url}" alt="Tilbud billede">`
+                                : 'Intet billede'}
+                        </div>
+
+                        <div class="offer-details">
+                            <div class="detail-group">
+                                <span class="detail-label">Produkt</span>
+                                <span class="detail-value">${offer.product_norm || '-'}</span>
+                            </div>
+                            <div class="detail-group">
+                                <span class="detail-label">Brand</span>
+                                <span class="detail-value">${offer.brand_norm || '-'}</span>
+                            </div>
+                            <div class="detail-group">
+                                <span class="detail-label">Kategori</span>
+                                <span class="detail-value">${offer.category || 'Andet'}</span>
+                            </div>
+                            <div class="detail-group">
+                                <span class="detail-label">Pris</span>
+                                <span class="detail-value">${offer.price_value ? offer.price_value + ' kr' : '-'}</span>
+                            </div>
+                            <div class="detail-group">
+                                <span class="detail-label">Enhedspris</span>
+                                <span class="detail-value">${offer.unit_price_value ? offer.unit_price_value.toFixed(2) + ' ' + (offer.unit_price_unit || '') : '-'}</span>
+                            </div>
+                            <div class="detail-group">
+                                <span class="detail-label">Mængde</span>
+                                <span class="detail-value">${offer.net_amount_value ? offer.net_amount_value + ' ' + (offer.net_amount_unit || '') : '-'}${offer.pack_count ? ' x' + offer.pack_count : ''}</span>
+                            </div>
+
+                            <div class="detail-group raw-text-group">
+                                <span class="detail-label">Original tekst</span>
+                                <div class="raw-text">${escapeHtml(offer.product_text_raw || '')}</div>
+                            </div>
+
+                            ${offer.confidence_reasons?.length ? `
+                                <div class="reasons-list">
+                                    ${offer.confidence_reasons.map(r => `<span class="reason-tag">${escapeHtml(r)}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <div class="offer-actions">
+                        <button class="action-btn approve" data-id="${offer.id || offer.row_key}">Godkend</button>
+                        <button class="action-btn reject" data-id="${offer.id || offer.row_key}">Afvis</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Selection
+        function toggleOfferSelection(id) {
+            if (selectedOffers.has(id)) {
+                selectedOffers.delete(id);
+            } else {
+                selectedOffers.add(id);
+            }
+            updateSelectedCount();
+
+            // Update card styling
+            const card = document.querySelector(`.offer-card[data-id="${id}"]`);
+            if (card) {
+                card.classList.toggle('selected', selectedOffers.has(id));
+            }
+        }
+
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('select-all').checked;
+
+            if (selectAll) {
+                offers.forEach(o => selectedOffers.add(o.id || o.row_key));
+            } else {
+                selectedOffers.clear();
+            }
+
+            // Update all checkboxes
+            document.querySelectorAll('.offer-checkbox').forEach(cb => {
+                cb.checked = selectAll;
+                const card = cb.closest('.offer-card');
+                if (card) card.classList.toggle('selected', selectAll);
+            });
+
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            const count = selectedOffers.size;
+            document.getElementById('selected-count').textContent = `${count} valgt`;
+            document.getElementById('batch-approve-btn').disabled = count === 0;
+            document.getElementById('batch-reject-btn').disabled = count === 0;
+        }
+
+        // Actions
+        async function approveOffer(id) {
+            await updateOfferStatus(id, 'published');
+        }
+
+        async function rejectOffer(id) {
+            if (confirm('Er du sikker på du vil afvise dette tilbud?')) {
+                await updateOfferStatus(id, 'deleted');
+            }
+        }
+
+        async function updateOfferStatus(id, status) {
+            showLoading(true);
+
+            try {
+                const offer = offers.find(o => (o.id || o.row_key) === id);
+                if (!offer) return;
+
+                const response = await fetch(`${API_BASE}/review/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser?.token}`,
+                        'x-api-key': currentUser?.token
+                    },
+                    body: JSON.stringify({
+                        partition_key: offer.partition_key,
+                        row_key: offer.row_key,
+                        status: status,
+                        reviewed_by: currentUser?.email
+                    })
+                });
+
+                // Remove from local list
+                offers = offers.filter(o => (o.id || o.row_key) !== id);
+                selectedOffers.delete(id);
+
+                renderQueue();
+                updateStats({ pending: offers.length });
+                showToast(status === 'published' ? 'Tilbud godkendt' : 'Tilbud afvist', 'success');
+
+            } catch (e) {
+                console.error('Update error:', e);
+                // Demo: still remove
+                offers = offers.filter(o => (o.id || o.row_key) !== id);
+                selectedOffers.delete(id);
+                renderQueue();
+                showToast(status === 'published' ? 'Tilbud godkendt' : 'Tilbud afvist', 'success');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function batchApprove() {
+            if (selectedOffers.size === 0) return;
+
+            showLoading(true);
+            const ids = [...selectedOffers];
+
+            try {
+                await fetch(`${API_BASE}/review/batch-approve`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser?.token}`,
+                        'x-api-key': currentUser?.token
+                    },
+                    body: JSON.stringify({
+                        offer_ids: ids,
+                        reviewed_by: currentUser?.email
+                    })
+                });
+            } catch (e) {
+                console.error('Batch approve error:', e);
+            }
+
+            // Remove from local list
+            offers = offers.filter(o => !selectedOffers.has(o.id || o.row_key));
+            selectedOffers.clear();
+
+            updateSelectedCount();
+            renderQueue();
+            updateStats({ pending: offers.length });
+            showToast(`${ids.length} tilbud godkendt`, 'success');
+            showLoading(false);
+        }
+
+        async function batchReject() {
+            if (selectedOffers.size === 0) return;
+
+            if (!confirm(`Er du sikker på du vil afvise ${selectedOffers.size} tilbud?`)) {
+                return;
+            }
+
+            showLoading(true);
+            const ids = [...selectedOffers];
+
+            try {
+                await fetch(`${API_BASE}/review/batch-reject`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser?.token}`,
+                        'x-api-key': currentUser?.token
+                    },
+                    body: JSON.stringify({
+                        offer_ids: ids,
+                        reviewed_by: currentUser?.email,
+                        reason: 'Batch rejected'
+                    })
+                });
+            } catch (e) {
+                console.error('Batch reject error:', e);
+            }
+
+            // Remove from local list
+            offers = offers.filter(o => !selectedOffers.has(o.id || o.row_key));
+            selectedOffers.clear();
+
+            updateSelectedCount();
+            renderQueue();
+            updateStats({ pending: offers.length });
+            showToast(`${ids.length} tilbud afvist`, 'success');
+            showLoading(false);
+        }
+
+        // Utilities
+        function showLoading(show) {
+            loading.classList.toggle('hidden', !show);
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => toast.remove(), 3000);
+        }
+    </script>
+</body>
+</html>

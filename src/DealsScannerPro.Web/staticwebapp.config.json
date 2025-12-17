@@ -1,0 +1,24 @@
+{
+  "routes": [
+    {
+      "route": "/review",
+      "rewrite": "/review.html"
+    },
+    {
+      "route": "/review/*",
+      "rewrite": "/review.html"
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html"
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https://func-dealscanner-prod.azurewebsites.net",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "mimeTypes": {
+    ".json": "application/json"
+  }
+}
