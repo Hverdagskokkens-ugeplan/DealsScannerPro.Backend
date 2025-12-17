@@ -14,6 +14,7 @@ var host = new HostBuilder()
         services.AddSingleton<ITableStorageService, TableStorageService>();
         services.AddSingleton<IFuzzySearchService, FuzzySearchService>();
         services.AddSingleton<ICategoryService, CategoryService>();
+        services.AddSingleton<IOfferService, OfferService>();
     })
     .Build();
 
