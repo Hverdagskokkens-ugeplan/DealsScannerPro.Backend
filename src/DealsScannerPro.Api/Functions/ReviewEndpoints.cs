@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Configuration;
@@ -433,41 +434,78 @@ public class ReviewEndpoints
 // Request models
 public class ReviewUpdateRequest
 {
+    [JsonPropertyName("partition_key")]
     public string PartitionKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("row_key")]
     public string RowKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("status")]
     public string? Status { get; set; }
+
+    [JsonPropertyName("brand_norm")]
     public string? BrandNorm { get; set; }
+
+    [JsonPropertyName("product_norm")]
     public string? ProductNorm { get; set; }
+
+    [JsonPropertyName("variant_norm")]
     public string? VariantNorm { get; set; }
+
+    [JsonPropertyName("category")]
     public string? Category { get; set; }
+
+    [JsonPropertyName("price_value")]
     public double? PriceValue { get; set; }
+
+    [JsonPropertyName("net_amount_value")]
     public double? NetAmountValue { get; set; }
+
+    [JsonPropertyName("net_amount_unit")]
     public string? NetAmountUnit { get; set; }
+
+    [JsonPropertyName("comment")]
     public string? Comment { get; set; }
+
+    [JsonPropertyName("reason")]
     public string? Reason { get; set; }
+
+    [JsonPropertyName("reviewed_by")]
     public string? ReviewedBy { get; set; }
 }
 
 public class BatchApproveRequest
 {
+    [JsonPropertyName("offer_ids")]
     public List<string> OfferIds { get; set; } = new();
+
+    [JsonPropertyName("reviewed_by")]
     public string? ReviewedBy { get; set; }
 }
 
 public class BatchRejectRequest
 {
+    [JsonPropertyName("offer_ids")]
     public List<string> OfferIds { get; set; } = new();
+
+    [JsonPropertyName("reviewed_by")]
     public string? ReviewedBy { get; set; }
+
+    [JsonPropertyName("reason")]
     public string? Reason { get; set; }
 }
 
 public class MagicLinkRequest
 {
+    [JsonPropertyName("email")]
     public string Email { get; set; } = string.Empty;
 }
 
 public class VerifyTokenRequest
 {
+    [JsonPropertyName("email")]
     public string Email { get; set; } = string.Empty;
+
+    [JsonPropertyName("token")]
     public string Token { get; set; } = string.Empty;
 }
