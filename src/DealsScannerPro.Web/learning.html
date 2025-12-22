@@ -152,6 +152,61 @@
             color: white;
         }
 
+        /* Status Indicators */
+        .status-indicators {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            color: white;
+            transition: background 0.2s;
+        }
+
+        .status-indicator:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-dot.loading {
+            background: #8b5cf6;
+            animation: pulse-dot 1s infinite;
+        }
+
+        .status-dot.active {
+            background: #10b981;
+        }
+
+        .status-dot.configured {
+            background: #f59e0b;
+        }
+
+        .status-dot.error {
+            background: #ef4444;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
         .header-actions {
             display: flex;
             gap: 15px;
@@ -626,6 +681,16 @@
                 <a href="learning.html" class="mode-tab active">Learning</a>
                 <a href="diagnostics.html" class="mode-tab">Diagnostics</a>
             </div>
+            <div class="status-indicators">
+                <a href="diagnostics.html" class="status-indicator" id="gpt-indicator" title="OpenAI GPT Status">
+                    <span class="status-dot loading" id="gpt-dot"></span>
+                    <span>GPT</span>
+                </a>
+                <a href="diagnostics.html" class="status-indicator" id="docintel-indicator" title="Document Intelligence Status">
+                    <span class="status-dot loading" id="docintel-dot"></span>
+                    <span>DocInt</span>
+                </a>
+            </div>
             <div class="header-actions">
                 <span class="user-info" id="user-email"></span>
                 <button class="logout-btn" id="logout-btn">Log ud</button>
@@ -674,7 +739,45 @@
     <script>
         // Configuration
         const API_BASE = 'https://func-dealscanner-prod.azurewebsites.net/api';
+        const SCANNER_API = 'https://func-dealscanner-scanner-prod.azurewebsites.net/api';
         const STORAGE_KEY = 'learning_auth';
+
+        // Load service status on page load
+        async function loadServiceStatus() {
+            try {
+                const response = await fetch(`${SCANNER_API}/diagnostics/health`);
+                if (!response.ok) throw new Error('Health check failed');
+
+                const data = await response.json();
+
+                // Update GPT indicator
+                const gptDot = document.getElementById('gpt-dot');
+                if (data.openai?.status === 'active') {
+                    gptDot.className = 'status-dot active';
+                } else if (data.openai?.status === 'configured') {
+                    gptDot.className = 'status-dot configured';
+                } else {
+                    gptDot.className = 'status-dot error';
+                }
+
+                // Update DocIntel indicator
+                const docDot = document.getElementById('docintel-dot');
+                if (data.document_intelligence?.status === 'active') {
+                    docDot.className = 'status-dot active';
+                } else if (data.document_intelligence?.status === 'configured') {
+                    docDot.className = 'status-dot configured';
+                } else {
+                    docDot.className = 'status-dot error';
+                }
+            } catch (e) {
+                console.error('Service status check failed:', e);
+                document.getElementById('gpt-dot').className = 'status-dot error';
+                document.getElementById('docintel-dot').className = 'status-dot error';
+            }
+        }
+
+        // Call on page load
+        loadServiceStatus();
 
         // State
         let currentUser = null;
