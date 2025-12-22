@@ -1063,8 +1063,12 @@
                 filtered = filtered.filter(o => o.retailer === retailerFilter);
             }
 
-            // Sort by confidence ascending (lowest first)
-            filtered.sort((a, b) => (a.confidence || 0) - (b.confidence || 0));
+            // Sort by page number (lowest first)
+            filtered.sort((a, b) => {
+                const pageA = a.trace?.page ?? a.page ?? 999;
+                const pageB = b.trace?.page ?? b.page ?? 999;
+                return pageA - pageB;
+            });
 
             if (filtered.length === 0) {
                 container.innerHTML = `

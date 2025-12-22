@@ -704,6 +704,7 @@
                     <option value="bilka">Bilka</option>
                 </select>
                 <select class="filter-select" id="sort-filter">
+                    <option value="page_asc">Side (laveste først)</option>
                     <option value="confidence_asc">Laveste confidence først</option>
                     <option value="confidence_desc">Højeste confidence først</option>
                     <option value="date_desc">Nyeste først</option>
@@ -1048,6 +1049,13 @@
 
             // Sort
             switch (sortFilter) {
+                case 'page_asc':
+                    filtered.sort((a, b) => {
+                        const pageA = a.trace?.page ?? a.page ?? 999;
+                        const pageB = b.trace?.page ?? b.page ?? 999;
+                        return pageA - pageB;
+                    });
+                    break;
                 case 'confidence_asc':
                     filtered.sort((a, b) => (a.confidence || 0) - (b.confidence || 0));
                     break;
