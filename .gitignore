@@ -45,3 +45,23 @@ packages/
 appsettings.*.json
 !appsettings.json
 !appsettings.Development.json.template
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# Python test files
+*_test.py
+test_*.py
+
+# Temp files
+nul
+*.tmp
+*.temp
+test_crop.png
