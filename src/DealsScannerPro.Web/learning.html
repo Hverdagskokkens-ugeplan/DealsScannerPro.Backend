@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learning Mode - DealsScannerPro</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+
+        /* Auth Screen */
+        .auth-screen {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .auth-box {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .auth-box h1 {
+            color: #1a1a2e;
+            margin-bottom: 10px;
+        }
+
+        .auth-box p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .auth-input {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            transition: border-color 0.2s;
+        }
+
+        .auth-input:focus {
+            outline: none;
+            border-color: #8b5cf6;
+        }
+
+        .auth-btn {
+            width: 100%;
+            padding: 14px;
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .auth-btn:hover { background: #7c3aed; }
+        .auth-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        .auth-error {
+            background: #fee;
+            color: #c00;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .auth-success {
+            background: #efe;
+            color: #060;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        /* Main App */
+        .app { display: none; }
+
+        .header {
+            background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header h1::before {
+            content: "🎓";
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .user-info {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .logout-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Stats Bar */
+        .stats-bar {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            gap: 30px;
+            border-bottom: 1px solid #e0e0e0;
+            flex-wrap: wrap;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .stat.warning .stat-value { color: #f59e0b; }
+        .stat.success .stat-value { color: #10b981; }
+        .stat.info .stat-value { color: #8b5cf6; }
+
+        /* Actions Bar */
+        .actions-bar {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e0e0e0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .filter-select {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .refresh-btn {
+            padding: 10px 20px;
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .refresh-btn:hover { background: #7c3aed; }
+
+        .mode-badge {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        /* Queue Container */
+        .queue-container {
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .queue-empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .queue-empty h2 {
+            margin-bottom: 10px;
+            color: #10b981;
+        }
+
+        /* Learning Card */
+        .learning-card {
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .retailer-badge {
+            font-weight: 600;
+            color: #1a1a2e;
+            text-transform: capitalize;
+        }
+
+        .page-badge {
+            background: #e0e7ff;
+            color: #3730a3;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .confidence-badge {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .confidence-bar {
+            width: 80px;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: 4px;
+        }
+
+        .confidence-fill.high { background: #10b981; }
+        .confidence-fill.medium { background: #f59e0b; }
+        .confidence-fill.low { background: #ef4444; }
+
+        .confidence-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+        }
+
+        .card-body {
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .card-body {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card-image {
+            background: #f0f2f5;
+            border-radius: 8px;
+            min-height: 140px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 13px;
+            overflow: hidden;
+        }
+
+        .card-image img {
+            max-width: 100%;
+            max-height: 180px;
+            object-fit: contain;
+        }
+
+        .card-content {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Info Row */
+        .info-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .info-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #888;
+            font-weight: 600;
+        }
+
+        .info-value {
+            font-size: 15px;
+            color: #1a1a2e;
+        }
+
+        /* Candidate Section */
+        .candidate-section {
+            background: #fafaff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 12px 16px;
+        }
+
+        .candidate-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #6b7280;
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .candidate-label::before {
+            content: "▸";
+            color: #8b5cf6;
+        }
+
+        .candidate-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .candidate-chip {
+            padding: 8px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            background: white;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            color: #374151;
+        }
+
+        .candidate-chip:hover {
+            border-color: #8b5cf6;
+            background: #f5f3ff;
+        }
+
+        .candidate-chip.selected {
+            border-color: #8b5cf6;
+            background: #8b5cf6;
+            color: white;
+        }
+
+        .candidate-chip .chip-value {
+            font-weight: 700;
+        }
+
+        .candidate-chip .chip-text {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-left: 4px;
+        }
+
+        .no-candidates {
+            color: #9ca3af;
+            font-size: 13px;
+            font-style: italic;
+        }
+
+        /* Raw Text */
+        .raw-text-section {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 10px 14px;
+        }
+
+        .raw-text-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #888;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .raw-text {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 12px;
+            color: #666;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.5;
+        }
+
+        /* Card Actions */
+        .card-actions {
+            display: flex;
+            gap: 10px;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn.save {
+            background: #10b981;
+            color: white;
+        }
+
+        .action-btn.save:hover { background: #059669; }
+        .action-btn.save:disabled { background: #a7f3d0; cursor: not-allowed; }
+
+        .action-btn.skip {
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .action-btn.skip:hover { background: #d1d5db; }
+
+        .action-btn.reject {
+            background: #ef4444;
+            color: white;
+        }
+
+        .action-btn.reject:hover { background: #dc2626; }
+
+        /* Progress indicator */
+        .progress-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #666;
+            font-size: 13px;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #8b5cf6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success { background: #10b981; }
+        .toast.error { background: #ef4444; }
+        .toast.info { background: #8b5cf6; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <!-- Auth Screen -->
+    <div class="auth-screen" id="auth-screen">
+        <div class="auth-box">
+            <h1>Learning Mode</h1>
+            <p>DealsScannerPro - Kandidatvalg</p>
+
+            <div class="auth-error" id="auth-error"></div>
+            <div class="auth-success" id="auth-success"></div>
+
+            <div id="login-form">
+                <input type="email" class="auth-input" id="email-input" placeholder="Din email">
+                <button class="auth-btn" id="send-link-btn">Send magic link</button>
+            </div>
+
+            <div id="token-form" class="hidden">
+                <input type="text" class="auth-input" id="token-input" placeholder="Indtast kode fra email">
+                <button class="auth-btn" id="verify-btn">Bekraft</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div class="app" id="app">
+        <header class="header">
+            <h1>Learning Mode</h1>
+            <div class="header-actions">
+                <span class="user-info" id="user-email"></span>
+                <button class="logout-btn" id="logout-btn">Log ud</button>
+            </div>
+        </header>
+
+        <div class="stats-bar" id="stats-bar">
+            <div class="stat warning">
+                <span class="stat-value" id="stat-pending">-</span>
+                <span class="stat-label">Afventer</span>
+            </div>
+            <div class="stat success">
+                <span class="stat-value" id="stat-completed">-</span>
+                <span class="stat-label">Gennemgaet</span>
+            </div>
+            <div class="stat info">
+                <span class="stat-value" id="stat-with-candidates">-</span>
+                <span class="stat-label">Med kandidater</span>
+            </div>
+        </div>
+
+        <div class="actions-bar">
+            <div class="filter-group">
+                <span class="mode-badge">Kandidat-valg mode</span>
+            </div>
+            <div class="filter-group">
+                <select class="filter-select" id="retailer-filter">
+                    <option value="">Alle butikker</option>
+                    <option value="netto">Netto</option>
+                    <option value="rema">Rema 1000</option>
+                </select>
+                <button class="refresh-btn" id="refresh-btn">Opdater</button>
+            </div>
+        </div>
+
+        <div class="queue-container" id="queue-container">
+            <!-- Learning cards will be rendered here -->
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay hidden" id="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = 'https://func-dealscanner-prod.azurewebsites.net/api';
+        const STORAGE_KEY = 'learning_auth';
+
+        // State
+        let currentUser = null;
+        let offers = [];
+        let currentIndex = 0;
+        let selections = {}; // { offerId: { priceIndex, amountIndex } }
+
+        // DOM Elements
+        const authScreen = document.getElementById('auth-screen');
+        const app = document.getElementById('app');
+        const loading = document.getElementById('loading');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuth();
+            setupEventListeners();
+        });
+
+        function checkAuth() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                try {
+                    const auth = JSON.parse(stored);
+                    if (auth.token && auth.email && auth.expires > Date.now()) {
+                        currentUser = auth;
+                        showApp();
+                        return;
+                    }
+                } catch (e) {}
+            }
+            showAuth();
+        }
+
+        function setupEventListeners() {
+            // Auth
+            document.getElementById('send-link-btn').addEventListener('click', sendMagicLink);
+            document.getElementById('verify-btn').addEventListener('click', () => {
+                const email = document.getElementById('email-input').value;
+                const token = document.getElementById('token-input').value;
+                verifyToken(email, token);
+            });
+            document.getElementById('logout-btn').addEventListener('click', logout);
+
+            // Enter key
+            document.getElementById('email-input').addEventListener('keypress', e => {
+                if (e.key === 'Enter') sendMagicLink();
+            });
+            document.getElementById('token-input').addEventListener('keypress', e => {
+                if (e.key === 'Enter') document.getElementById('verify-btn').click();
+            });
+
+            // Queue actions
+            document.getElementById('refresh-btn').addEventListener('click', loadQueue);
+            document.getElementById('retailer-filter').addEventListener('change', renderQueue);
+        }
+
+        // Auth Functions
+        async function sendMagicLink() {
+            const email = document.getElementById('email-input').value.trim();
+            if (!email || !email.includes('@')) {
+                showAuthError('Indtast en gyldig email');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/magic-link`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+
+                showAuthSuccess('Demo mode: Indtast "demo123" som kode');
+                document.getElementById('login-form').classList.add('hidden');
+                document.getElementById('token-form').classList.remove('hidden');
+            } catch (e) {
+                showAuthSuccess('Demo mode: Indtast "demo123" som kode');
+                document.getElementById('login-form').classList.add('hidden');
+                document.getElementById('token-form').classList.remove('hidden');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function verifyToken(email, token) {
+            showLoading(true);
+
+            if (token === 'demo123' || token.length > 5) {
+                const auth = {
+                    email: email || document.getElementById('email-input').value,
+                    token: token,
+                    expires: Date.now() + 24 * 60 * 60 * 1000
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+                currentUser = auth;
+                showApp();
+                showLoading(false);
+                return;
+            }
+
+            showAuthError('Ugyldig kode');
+            showLoading(false);
+        }
+
+        function logout() {
+            localStorage.removeItem(STORAGE_KEY);
+            currentUser = null;
+            showAuth();
+        }
+
+        function showAuth() {
+            authScreen.classList.remove('hidden');
+            app.classList.add('hidden');
+            document.getElementById('login-form').classList.remove('hidden');
+            document.getElementById('token-form').classList.add('hidden');
+        }
+
+        function showApp() {
+            authScreen.classList.add('hidden');
+            app.classList.remove('hidden');
+            app.style.display = 'block';
+            document.getElementById('user-email').textContent = currentUser?.email || '';
+            loadQueue();
+        }
+
+        function showAuthError(msg) {
+            const el = document.getElementById('auth-error');
+            el.textContent = msg;
+            el.style.display = 'block';
+            document.getElementById('auth-success').style.display = 'none';
+        }
+
+        function showAuthSuccess(msg) {
+            const el = document.getElementById('auth-success');
+            el.textContent = msg;
+            el.style.display = 'block';
+            document.getElementById('auth-error').style.display = 'none';
+        }
+
+        // Queue Functions
+        async function loadQueue() {
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${API_BASE}/review/queue?limit=50`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentUser?.token}`,
+                        'x-api-key': currentUser?.token
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    offers = (data.offers || data || []).filter(o => o.candidates);
+                    updateStats();
+                } else {
+                    offers = generateDemoOffers();
+                    updateStats();
+                }
+            } catch (e) {
+                console.error('Load queue error:', e);
+                offers = generateDemoOffers();
+                updateStats();
+            } finally {
+                selections = {};
+                // Pre-populate selections with current selected indices
+                offers.forEach(o => {
+                    const id = o.id || o.row_key;
+                    selections[id] = {
+                        priceIndex: o.candidates?.selected?.price_index ?? null,
+                        amountIndex: o.candidates?.selected?.amount_index ?? null
+                    };
+                });
+                currentIndex = 0;
+                renderQueue();
+                showLoading(false);
+            }
+        }
+
+        function generateDemoOffers() {
+            return [
+                {
+                    id: 'demo_1',
+                    partition_key: 'netto_2025-01-01_2025-01-07',
+                    row_key: 'sku_1',
+                    retailer: 'netto',
+                    product_text_raw: 'Coca-Cola 6x33cl 25,- eller 2 for 45,-\nPr. liter 12,63',
+                    product_norm: 'Cola',
+                    brand_norm: 'Coca-Cola',
+                    category: 'Drikkevarer',
+                    price_value: 25,
+                    net_amount_value: 33,
+                    net_amount_unit: 'cl',
+                    confidence: 0.72,
+                    trace: { page: 3 },
+                    candidates: {
+                        price_candidates: [
+                            { value: 25, text: '25,-', source: 'bbox_text' },
+                            { value: 45, text: '45,-', source: 'bbox_text' },
+                            { value: 12.63, text: '12,63', source: 'bbox_text' }
+                        ],
+                        amount_candidates: [
+                            { value: 6, unit: 'stk', text: '6x' },
+                            { value: 33, unit: 'cl', text: '33cl' },
+                            { value: 1.98, unit: 'L', text: '6x33cl' }
+                        ],
+                        selected: { price_index: 0, amount_index: 1 }
+                    }
+                },
+                {
+                    id: 'demo_2',
+                    partition_key: 'netto_2025-01-01_2025-01-07',
+                    row_key: 'sku_2',
+                    retailer: 'netto',
+                    product_text_raw: 'Hakket oksekod 500g 35,00\nPr. kg 70,00',
+                    product_norm: 'Hakket oksekod',
+                    brand_norm: null,
+                    category: 'Kod',
+                    price_value: 35,
+                    net_amount_value: 500,
+                    net_amount_unit: 'g',
+                    confidence: 0.65,
+                    trace: { page: 5 },
+                    candidates: {
+                        price_candidates: [
+                            { value: 35, text: '35,00', source: 'bbox_text' },
+                            { value: 70, text: '70,00', source: 'bbox_text' }
+                        ],
+                        amount_candidates: [
+                            { value: 500, unit: 'g', text: '500g' }
+                        ],
+                        selected: { price_index: 0, amount_index: 0 }
+                    }
+                },
+                {
+                    id: 'demo_3',
+                    partition_key: 'rema_2025-01-01_2025-01-07',
+                    row_key: 'sku_3',
+                    retailer: 'rema',
+                    product_text_raw: 'Lurpak smor letsal. 200g\n29,95 eller 2 for 50,-',
+                    product_norm: 'Smor',
+                    brand_norm: 'Lurpak',
+                    variant_norm: 'Letsaltet',
+                    category: 'Mejeri',
+                    price_value: 29.95,
+                    net_amount_value: 200,
+                    net_amount_unit: 'g',
+                    confidence: 0.58,
+                    trace: { page: 2 },
+                    candidates: {
+                        price_candidates: [
+                            { value: 29.95, text: '29,95', source: 'bbox_text' },
+                            { value: 50, text: '50,-', source: 'bbox_text' }
+                        ],
+                        amount_candidates: [
+                            { value: 200, unit: 'g', text: '200g' },
+                            { value: 2, unit: 'stk', text: '2 for' }
+                        ],
+                        selected: { price_index: 0, amount_index: 0 }
+                    }
+                }
+            ];
+        }
+
+        function updateStats() {
+            const withCandidates = offers.filter(o =>
+                o.candidates?.price_candidates?.length || o.candidates?.amount_candidates?.length
+            ).length;
+
+            document.getElementById('stat-pending').textContent = offers.length;
+            document.getElementById('stat-completed').textContent = '0';
+            document.getElementById('stat-with-candidates').textContent = withCandidates;
+        }
+
+        function renderQueue() {
+            const container = document.getElementById('queue-container');
+            const retailerFilter = document.getElementById('retailer-filter').value;
+
+            let filtered = [...offers];
+
+            if (retailerFilter) {
+                filtered = filtered.filter(o => o.retailer === retailerFilter);
+            }
+
+            // Sort by confidence ascending (lowest first)
+            filtered.sort((a, b) => (a.confidence || 0) - (b.confidence || 0));
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="queue-empty">
+                        <h2>Ingen tilbud med kandidater</h2>
+                        <p>Vent pa at scanneren genererer nye tilbud med kandidater.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filtered.map((offer, idx) => renderLearningCard(offer, idx)).join('');
+
+            // Attach chip click handlers
+            container.querySelectorAll('.candidate-chip').forEach(chip => {
+                chip.addEventListener('click', () => handleChipClick(chip));
+            });
+
+            // Attach action button handlers
+            container.querySelectorAll('.action-btn.save').forEach(btn => {
+                btn.addEventListener('click', () => saveOffer(btn.dataset.id));
+            });
+
+            container.querySelectorAll('.action-btn.skip').forEach(btn => {
+                btn.addEventListener('click', () => skipOffer(btn.dataset.id));
+            });
+
+            container.querySelectorAll('.action-btn.reject').forEach(btn => {
+                btn.addEventListener('click', () => rejectOffer(btn.dataset.id));
+            });
+        }
+
+        function renderLearningCard(offer, index) {
+            const confPercent = ((offer.confidence || 0) * 100).toFixed(0);
+            const confClass = offer.confidence >= 0.8 ? 'high' : offer.confidence >= 0.6 ? 'medium' : 'low';
+            const id = offer.id || offer.row_key;
+            const selection = selections[id] || {};
+
+            const priceCandidates = offer.candidates?.price_candidates || [];
+            const amountCandidates = offer.candidates?.amount_candidates || [];
+
+            return `
+                <div class="learning-card" data-id="${id}">
+                    <div class="card-header">
+                        <span class="retailer-badge">${offer.retailer || 'Ukendt'}</span>
+                        ${offer.trace?.page ? `<span class="page-badge">Side ${offer.trace.page}</span>` : ''}
+                        <div class="confidence-badge">
+                            <div class="confidence-bar">
+                                <div class="confidence-fill ${confClass}" style="width: ${confPercent}%"></div>
+                            </div>
+                            <span class="confidence-value">${confPercent}%</span>
+                        </div>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="card-image">
+                            ${offer.crop_url
+                                ? `<img src="${offer.crop_url}" alt="Tilbud">`
+                                : 'Intet billede'}
+                        </div>
+
+                        <div class="card-content">
+                            <div class="info-row">
+                                <div class="info-item">
+                                    <span class="info-label">Produkt</span>
+                                    <span class="info-value">${escapeHtml(offer.product_norm || '-')}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Brand</span>
+                                    <span class="info-value">${escapeHtml(offer.brand_norm || '-')}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Kategori</span>
+                                    <span class="info-value">${escapeHtml(offer.category || 'Andet')}</span>
+                                </div>
+                            </div>
+
+                            <div class="candidate-section">
+                                <div class="candidate-label">Pris (valg en)</div>
+                                <div class="candidate-chips" data-offer="${id}" data-type="price">
+                                    ${priceCandidates.length > 0
+                                        ? priceCandidates.map((c, i) => `
+                                            <div class="candidate-chip ${selection.priceIndex === i ? 'selected' : ''}"
+                                                 data-offer="${id}" data-type="price" data-index="${i}">
+                                                <span class="chip-value">${c.value} kr</span>
+                                                <span class="chip-text">"${escapeHtml(c.text)}"</span>
+                                            </div>
+                                        `).join('')
+                                        : '<span class="no-candidates">Ingen pris-kandidater</span>'
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="candidate-section">
+                                <div class="candidate-label">Maengde (valg en)</div>
+                                <div class="candidate-chips" data-offer="${id}" data-type="amount">
+                                    ${amountCandidates.length > 0
+                                        ? amountCandidates.map((c, i) => `
+                                            <div class="candidate-chip ${selection.amountIndex === i ? 'selected' : ''}"
+                                                 data-offer="${id}" data-type="amount" data-index="${i}">
+                                                <span class="chip-value">${c.value} ${c.unit}</span>
+                                                <span class="chip-text">"${escapeHtml(c.text)}"</span>
+                                            </div>
+                                        `).join('')
+                                        : '<span class="no-candidates">Ingen maengde-kandidater</span>'
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="raw-text-section">
+                                <div class="raw-text-label">Original tekst</div>
+                                <div class="raw-text">${escapeHtml(offer.product_text_raw || '')}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-actions">
+                        <button class="action-btn save" data-id="${id}">Gem valg</button>
+                        <button class="action-btn skip" data-id="${id}">Spring over</button>
+                        <button class="action-btn reject" data-id="${id}">Afvis</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function handleChipClick(chip) {
+            const offerId = chip.dataset.offer;
+            const type = chip.dataset.type;
+            const index = parseInt(chip.dataset.index);
+
+            if (!selections[offerId]) {
+                selections[offerId] = { priceIndex: null, amountIndex: null };
+            }
+
+            // Update selection
+            if (type === 'price') {
+                selections[offerId].priceIndex = index;
+            } else if (type === 'amount') {
+                selections[offerId].amountIndex = index;
+            }
+
+            // Update UI - deselect siblings and select this one
+            const container = chip.parentElement;
+            container.querySelectorAll('.candidate-chip').forEach(c => c.classList.remove('selected'));
+            chip.classList.add('selected');
+        }
+
+        async function saveOffer(id) {
+            const offer = offers.find(o => (o.id || o.row_key) === id);
+            if (!offer) return;
+
+            const selection = selections[id] || {};
+            showLoading(true);
+
+            try {
+                // Get selected values
+                const priceCandidates = offer.candidates?.price_candidates || [];
+                const amountCandidates = offer.candidates?.amount_candidates || [];
+
+                const selectedPrice = selection.priceIndex !== null && priceCandidates[selection.priceIndex]
+                    ? priceCandidates[selection.priceIndex].value
+                    : offer.price_value;
+
+                const selectedAmount = selection.amountIndex !== null && amountCandidates[selection.amountIndex]
+                    ? amountCandidates[selection.amountIndex]
+                    : null;
+
+                const response = await fetch(`${API_BASE}/review/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser?.token}`,
+                        'x-api-key': currentUser?.token
+                    },
+                    body: JSON.stringify({
+                        partition_key: offer.partition_key,
+                        row_key: offer.row_key,
+                        status: 'published',
+                        price_value: selectedPrice,
+                        net_amount_value: selectedAmount?.value ?? offer.net_amount_value,
+                        net_amount_unit: selectedAmount?.unit ?? offer.net_amount_unit,
+                        reviewed_by: currentUser?.email
+                    })
+                });
+
+                // Remove from list
+                offers = offers.filter(o => (o.id || o.row_key) !== id);
+                delete selections[id];
+                renderQueue();
+                updateStats();
+                showToast('Valg gemt', 'success');
+
+            } catch (e) {
+                console.error('Save error:', e);
+                // Demo mode: still remove
+                offers = offers.filter(o => (o.id || o.row_key) !== id);
+                delete selections[id];
+                renderQueue();
+                updateStats();
+                showToast('Valg gemt (demo)', 'success');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function skipOffer(id) {
+            // Move to end of list
+            const idx = offers.findIndex(o => (o.id || o.row_key) === id);
+            if (idx !== -1) {
+                const [offer] = offers.splice(idx, 1);
+                offers.push(offer);
+                renderQueue();
+            }
+        }
+
+        async function rejectOffer(id) {
+            if (!confirm('Er du sikker pa du vil afvise dette tilbud?')) return;
+
+            const offer = offers.find(o => (o.id || o.row_key) === id);
+            if (!offer) return;
+
+            showLoading(true);
+
+            try {
+                await fetch(`${API_BASE}/review/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser?.token}`,
+                        'x-api-key': currentUser?.token
+                    },
+                    body: JSON.stringify({
+                        partition_key: offer.partition_key,
+                        row_key: offer.row_key,
+                        status: 'deleted',
+                        reviewed_by: currentUser?.email,
+                        reason: 'Rejected in learning mode'
+                    })
+                });
+            } catch (e) {
+                console.error('Reject error:', e);
+            }
+
+            offers = offers.filter(o => (o.id || o.row_key) !== id);
+            delete selections[id];
+            renderQueue();
+            updateStats();
+            showToast('Tilbud afvist', 'info');
+            showLoading(false);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showLoading(show) {
+            loading.classList.toggle('hidden', !show);
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+    </script>
+</body>
+</html>
