@@ -400,8 +400,24 @@ def process_tilbudsavis(event: func.EventGridEvent):
             # Count auto-published vs needs_review
             auto_published = sum(1 for o in scan_result.offers if o.status == "published")
             needs_review = sum(1 for o in scan_result.offers if o.status == "needs_review")
+            offers_with_candidates = sum(1 for o in scan_result.offers if o.candidates)
+            avg_confidence = sum(o.confidence for o in scan_result.offers) / len(scan_result.offers) if scan_result.offers else 0
 
             logging.info(f"Uploaded: {auto_published} auto-published, {needs_review} needs review")
+
+            # Log scan to diagnostics API
+            log_scan_to_api(
+                source_file=filename,
+                retailer=butik,
+                valid_from=gyldig_fra,
+                valid_to=gyldig_til,
+                scan_result=scan_result,
+                offers_uploaded=auto_published + needs_review,
+                offers_with_candidates=offers_with_candidates,
+                avg_confidence=avg_confidence,
+                status="completed"
+            )
+
             move_blob(filename, "processed", {
                 "processedAt": _datetime.utcnow().isoformat(),
                 "offersExtracted": str(len(scan_result.offers)),
@@ -411,6 +427,21 @@ def process_tilbudsavis(event: func.EventGridEvent):
             })
         else:
             logging.error(f"Failed to upload offers for {filename}")
+
+            # Log failed scan
+            log_scan_to_api(
+                source_file=filename,
+                retailer=butik,
+                valid_from=gyldig_fra,
+                valid_to=gyldig_til,
+                scan_result=scan_result,
+                offers_uploaded=0,
+                offers_with_candidates=0,
+                avg_confidence=0,
+                status="failed",
+                error_message="API upload failed"
+            )
+
             move_blob(filename, "failed", {"error": "API upload failed"})
 
     except ValueError as e:
@@ -646,6 +677,80 @@ def upload_to_api_v1_fallback(butik: str, gyldig_fra: str, gyldig_til: str,
     except Exception as e:
         logging.exception(f"V1 fallback error: {e}")
         return False
+
+
+def log_scan_to_api(
+    source_file: str,
+    retailer: str,
+    valid_from: str,
+    valid_to: str,
+    scan_result,
+    offers_uploaded: int,
+    offers_with_candidates: int,
+    avg_confidence: float,
+    status: str = "completed",
+    error_message: str = None,
+    warnings: list = None
+):
+    """
+    Log scan metadata to diagnostics API.
+    POST /api/diagnostics/scans
+    """
+    if _requests is None:
+        logging.warning("requests module not available, skipping scan log")
+        return
+
+    if not API_KEY:
+        logging.warning("DEALS_API_KEY not configured, skipping scan log")
+        return
+
+    # Determine services used
+    services_used = {
+        "layout": "document_intelligence",  # Default for v2.0 scanner
+        "normalization": "openai_gpt4" if OPENAI_API_KEY else "rule_based_fallback",
+        "cropping": "enabled"  # We enable cropping by default
+    }
+
+    # Check if scanner has service info
+    if hasattr(scan_result, 'services_used') and scan_result.services_used:
+        services_used.update(scan_result.services_used)
+
+    payload = {
+        "source_file": source_file,
+        "retailer": retailer,
+        "valid_from": valid_from,
+        "valid_to": valid_to,
+        "services_used": services_used,
+        "pages_scanned": scan_result.total_pages if scan_result else 0,
+        "offers_detected": scan_result.offers_detected if scan_result else 0,
+        "offers_extracted": len(scan_result.offers) if scan_result and scan_result.offers else 0,
+        "offers_with_candidates": offers_with_candidates,
+        "avg_confidence": round(avg_confidence, 3),
+        "offers_uploaded": offers_uploaded,
+        "status": status,
+        "error_message": error_message,
+        "warnings": warnings or []
+    }
+
+    try:
+        response = _requests.post(
+            f"{API_BASE_URL}/api/diagnostics/scans",
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": API_KEY
+            },
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            logging.info(f"Scan logged successfully: {result.get('scan_id', 'unknown')}")
+        else:
+            logging.warning(f"Failed to log scan: {response.status_code} - {response.text[:200]}")
+
+    except Exception as e:
+        logging.warning(f"Error logging scan: {e}")
 
 
 def download_blob(filename: str) -> bytes:
