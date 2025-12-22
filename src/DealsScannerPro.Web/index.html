@@ -256,8 +256,8 @@
 
                 // Sort by page number (lowest first)
                 data.sort((a, b) => {
-                    const pageA = a.trace?.page ?? a.page ?? 999;
-                    const pageB = b.trace?.page ?? b.page ?? 999;
+                    const pageA = a.Side ?? a.side ?? 999;
+                    const pageB = b.Side ?? b.side ?? 999;
                     return pageA - pageB;
                 });
 
