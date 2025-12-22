@@ -132,6 +132,9 @@ public class OfferService : IOfferService
                             SourceFile = meta.SourceFile
                         })
                         : null,
+                    CandidatesJson = scannedOffer.Candidates != null
+                        ? JsonSerializer.Serialize(scannedOffer.Candidates)
+                        : null,
                     Status = status,
                     ReviewReason = reviewReason,
                     CreatedAt = DateTime.UtcNow
@@ -260,6 +263,9 @@ public class OfferService : IOfferService
                     CropUrl = scannedOffer.CropUrl,
                     TraceJson = scannedOffer.Trace != null
                         ? JsonSerializer.Serialize(scannedOffer.Trace)
+                        : null,
+                    CandidatesJson = scannedOffer.Candidates != null
+                        ? JsonSerializer.Serialize(scannedOffer.Candidates)
                         : null,
                     Status = status,
                     ReviewReason = scannedOffer.ConfidenceReasons != null

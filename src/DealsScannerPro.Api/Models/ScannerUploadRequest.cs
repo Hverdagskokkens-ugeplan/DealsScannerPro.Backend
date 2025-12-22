@@ -145,6 +145,10 @@ public class ScannedOffer
     // Trace
     [JsonPropertyName("trace")]
     public ScannedOfferTrace? Trace { get; set; }
+
+    // Learning Mode - Candidates
+    [JsonPropertyName("candidates")]
+    public ScannedOfferCandidates? Candidates { get; set; }
 }
 
 public class ScannedOfferTrace
@@ -160,4 +164,49 @@ public class ScannedOfferTrace
 
     [JsonPropertyName("source_file")]
     public string? SourceFile { get; set; }
+}
+
+public class ScannedOfferCandidates
+{
+    [JsonPropertyName("price_candidates")]
+    public List<ScannedPriceCandidate>? PriceCandidates { get; set; }
+
+    [JsonPropertyName("amount_candidates")]
+    public List<ScannedAmountCandidate>? AmountCandidates { get; set; }
+
+    [JsonPropertyName("selected")]
+    public ScannedSelectedCandidates? Selected { get; set; }
+}
+
+public class ScannedPriceCandidate
+{
+    [JsonPropertyName("value")]
+    public double Value { get; set; }
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+
+    [JsonPropertyName("source")]
+    public string? Source { get; set; }
+}
+
+public class ScannedAmountCandidate
+{
+    [JsonPropertyName("value")]
+    public double Value { get; set; }
+
+    [JsonPropertyName("unit")]
+    public string Unit { get; set; } = string.Empty;
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+}
+
+public class ScannedSelectedCandidates
+{
+    [JsonPropertyName("price_index")]
+    public int? PriceIndex { get; set; }
+
+    [JsonPropertyName("amount_index")]
+    public int? AmountIndex { get; set; }
 }

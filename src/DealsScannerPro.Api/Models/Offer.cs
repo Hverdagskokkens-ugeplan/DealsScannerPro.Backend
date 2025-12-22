@@ -62,6 +62,9 @@ public class Offer : ITableEntity
     // Trace (for debugging and review)
     public string? TraceJson { get; set; }  // JSON: {"page": 3, "bbox": [...], "text_lines": [...], "source_file": "..."}
 
+    // Learning Mode - Candidates for review
+    public string? CandidatesJson { get; set; }  // JSON: {"price_candidates": [...], "amount_candidates": [...], "selected": {...}}
+
     // Status
     public string Status { get; set; } = "needs_review";  // needs_review, published, deleted, low_confidence
     public string? ReviewReason { get; set; }
@@ -118,6 +121,54 @@ public class OfferTrace
 
     [JsonPropertyName("crop_blob_url")]
     public string? CropBlobUrl { get; set; }
+}
+
+/// <summary>
+/// Candidates for Learning Mode review
+/// </summary>
+public class OfferCandidates
+{
+    [JsonPropertyName("price_candidates")]
+    public List<PriceCandidate>? PriceCandidates { get; set; }
+
+    [JsonPropertyName("amount_candidates")]
+    public List<AmountCandidate>? AmountCandidates { get; set; }
+
+    [JsonPropertyName("selected")]
+    public SelectedCandidates? Selected { get; set; }
+}
+
+public class PriceCandidate
+{
+    [JsonPropertyName("value")]
+    public double Value { get; set; }
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+
+    [JsonPropertyName("source")]
+    public string? Source { get; set; }  // bbox_text, unit_price_line, etc.
+}
+
+public class AmountCandidate
+{
+    [JsonPropertyName("value")]
+    public double Value { get; set; }
+
+    [JsonPropertyName("unit")]
+    public string Unit { get; set; } = string.Empty;  // g, kg, ml, L, stk, pk
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+}
+
+public class SelectedCandidates
+{
+    [JsonPropertyName("price_index")]
+    public int? PriceIndex { get; set; }
+
+    [JsonPropertyName("amount_index")]
+    public int? AmountIndex { get; set; }
 }
 
 /// <summary>

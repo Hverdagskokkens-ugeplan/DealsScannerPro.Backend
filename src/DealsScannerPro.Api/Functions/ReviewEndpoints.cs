@@ -413,7 +413,8 @@ public class ReviewEndpoints
             created_at = offer.CreatedAt,
             reviewed_at = offer.ReviewedAt,
             reviewed_by = offer.ReviewedBy,
-            trace = ParseJson<OfferTrace>(offer.TraceJson)
+            trace = ParseJson<OfferTrace>(offer.TraceJson),
+            candidates = ParseJson<OfferCandidates>(offer.CandidatesJson)
         };
     }
 

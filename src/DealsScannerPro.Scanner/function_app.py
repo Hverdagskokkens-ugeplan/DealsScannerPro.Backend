@@ -321,7 +321,10 @@ def offer_to_dict(offer) -> dict:
         "crop_url": offer.crop_url,
 
         # Trace
-        "trace": offer.trace
+        "trace": offer.trace,
+
+        # Learning Mode - Candidates
+        "candidates": offer.candidates.to_dict() if offer.candidates else None
     }
 
 

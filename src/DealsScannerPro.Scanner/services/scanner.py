@@ -36,6 +36,48 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class PriceCandidate:
+    """A price candidate extracted from text."""
+    value: float
+    text: str
+    source: str = "bbox_text"
+
+
+@dataclass
+class AmountCandidate:
+    """An amount candidate extracted from text."""
+    value: float
+    unit: str
+    text: str
+
+
+@dataclass
+class OfferCandidates:
+    """All candidates for an offer."""
+    price_candidates: List[PriceCandidate] = field(default_factory=list)
+    amount_candidates: List[AmountCandidate] = field(default_factory=list)
+    selected_price_index: Optional[int] = None
+    selected_amount_index: Optional[int] = None
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "price_candidates": [
+                {"value": c.value, "text": c.text, "source": c.source}
+                for c in self.price_candidates
+            ],
+            "amount_candidates": [
+                {"value": c.value, "unit": c.unit, "text": c.text}
+                for c in self.amount_candidates
+            ],
+            "selected": {
+                "price_index": self.selected_price_index,
+                "amount_index": self.selected_amount_index
+            }
+        }
+
+
+@dataclass
 class ScannedOffer:
     """Final scanned offer ready for API upload."""
     # Raw data
@@ -81,6 +123,9 @@ class ScannedOffer:
 
     # Trace
     trace: dict = field(default_factory=dict)
+
+    # Learning Mode - Candidates
+    candidates: Optional[OfferCandidates] = None
 
 
 @dataclass
@@ -300,6 +345,17 @@ class Scanner:
             if crop_result.success and crop_result.blob_url:
                 crop_url = crop_result.blob_url
 
+        # Extract candidates for Learning Mode
+        candidates = self._extract_candidates(block.text_lines)
+
+        # Find selected candidate indices based on what GPT/scanner chose
+        candidates.selected_price_index = self._find_selected_candidate_index(
+            candidates.price_candidates, price_value
+        )
+        candidates.selected_amount_index = self._find_selected_candidate_index(
+            candidates.amount_candidates, net_amount_value, net_amount_unit
+        )
+
         return ScannedOffer(
             product_text_raw=block.product_text,
             brand_norm=normalized.brand_norm,
@@ -322,7 +378,8 @@ class Scanner:
             confidence_reasons=confidence_reasons,
             status=status,
             crop_url=crop_url,
-            trace=trace
+            trace=trace,
+            candidates=candidates
         )
 
     def _parse_quantity(self, text: str) -> Optional[Tuple[float, str, Optional[int]]]:
@@ -351,6 +408,124 @@ class Scanner:
             value = float(simple_match.group(1).replace(',', '.'))
             unit = simple_match.group(2)
             return (value, unit, None)
+
+        return None
+
+    def _extract_candidates(self, text_lines: List[str]) -> OfferCandidates:
+        """
+        Extract all price and amount candidates from text lines.
+
+        Args:
+            text_lines: List of text lines from the offer block
+
+        Returns:
+            OfferCandidates with all found candidates
+        """
+        import re
+
+        candidates = OfferCandidates()
+        full_text = " ".join(text_lines).lower()
+
+        # Extract price candidates
+        # Pattern: "29,95" or "29.95" or "29,-" or "29,00 kr"
+        price_patterns = [
+            (r'(\d+)[,.](\d{2})\s*(?:kr)?(?!\s*/)', r'\1,\2'),  # 29,95 or 29.95
+            (r'(\d+)\s*,-', r'\1,-'),  # 29,-
+            (r'(\d+)\s*kr(?:\.|$|\s)', r'\1'),  # 29 kr
+        ]
+
+        seen_prices = set()
+        for pattern, _ in price_patterns:
+            for match in re.finditer(pattern, full_text):
+                try:
+                    text_match = match.group(0).strip()
+                    # Parse the value
+                    if ',-' in text_match:
+                        value = float(match.group(1))
+                    elif ',' in text_match or '.' in text_match:
+                        value = float(match.group(1) + '.' + match.group(2))
+                    else:
+                        value = float(match.group(1))
+
+                    # Avoid duplicates and unrealistic prices
+                    if value > 0 and value < 10000 and value not in seen_prices:
+                        seen_prices.add(value)
+                        candidates.price_candidates.append(
+                            PriceCandidate(value=value, text=text_match, source="bbox_text")
+                        )
+                except (ValueError, IndexError):
+                    continue
+
+        # Extract amount candidates
+        # Pattern: "500 g", "1,5 kg", "33 cl", "1 L", "6 stk"
+        amount_pattern = r'(\d+(?:[.,]\d+)?)\s*(g|kg|ml|cl|dl|l|liter|stk|pk)\b'
+
+        seen_amounts = set()
+        for match in re.finditer(amount_pattern, full_text):
+            try:
+                value = float(match.group(1).replace(',', '.'))
+                unit = match.group(2).lower()
+                text_match = match.group(0).strip()
+
+                # Normalize units
+                if unit == 'liter':
+                    unit = 'l'
+
+                # Create unique key for dedup
+                key = (value, unit)
+                if key not in seen_amounts and value > 0:
+                    seen_amounts.add(key)
+                    candidates.amount_candidates.append(
+                        AmountCandidate(value=value, unit=unit, text=text_match)
+                    )
+            except (ValueError, IndexError):
+                continue
+
+        # Also check for multipack patterns: "6 x 33 cl"
+        multipack_pattern = r'(\d+)\s*x\s*(\d+(?:[.,]\d+)?)\s*(g|kg|ml|cl|dl|l|stk)'
+        for match in re.finditer(multipack_pattern, full_text):
+            try:
+                pack = int(match.group(1))
+                value = float(match.group(2).replace(',', '.'))
+                unit = match.group(3).lower()
+                text_match = match.group(0).strip()
+
+                # Add the individual unit amount
+                key = (value, unit)
+                if key not in seen_amounts:
+                    seen_amounts.add(key)
+                    candidates.amount_candidates.append(
+                        AmountCandidate(value=value, unit=unit, text=text_match)
+                    )
+            except (ValueError, IndexError):
+                continue
+
+        # Sort candidates by value (most likely main price/amount first)
+        candidates.price_candidates.sort(key=lambda c: c.value, reverse=True)
+        candidates.amount_candidates.sort(key=lambda c: c.value, reverse=True)
+
+        return candidates
+
+    def _find_selected_candidate_index(
+        self,
+        candidates: List,
+        selected_value: Optional[float],
+        selected_unit: Optional[str] = None
+    ) -> Optional[int]:
+        """Find the index of the selected value in candidates list."""
+        if selected_value is None:
+            return None
+
+        for i, candidate in enumerate(candidates):
+            if hasattr(candidate, 'unit'):
+                # Amount candidate - match value and unit
+                if (abs(candidate.value - selected_value) < 0.01 and
+                    (selected_unit is None or candidate.unit == selected_unit)):
+                    return i
+            else:
+                # Price candidate - just match value
+                if abs(candidate.value - selected_value) < 0.01:
+                    return i
 
         return None
 
