@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnostics - DealsScannerPro</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header h1::before {
+            content: "🔧";
+        }
+
+        .mode-switcher {
+            display: flex;
+            gap: 4px;
+            background: rgba(255,255,255,0.15);
+            padding: 4px;
+            border-radius: 8px;
+        }
+
+        .mode-tab {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .mode-tab.active {
+            background: white;
+            color: #7c3aed;
+        }
+
+        .mode-tab:not(.active) {
+            background: transparent;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .mode-tab:not(.active):hover {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .refresh-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Main container */
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Section Cards */
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            gap: 10px;
+        }
+
+        .section-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+
+        .section-body {
+            padding: 20px;
+        }
+
+        /* Status Grid */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+
+        .status-icon {
+            font-size: 24px;
+            flex-shrink: 0;
+        }
+
+        .status-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .status-name {
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 4px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-badge.active {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-badge.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-badge.configured {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-badge.loading {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .status-badge::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-badge.active::before { background: #10b981; }
+        .status-badge.error::before { background: #ef4444; }
+        .status-badge.configured::before { background: #f59e0b; }
+        .status-badge.loading::before { background: #8b5cf6; animation: pulse 1s infinite; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .status-details {
+            font-size: 12px;
+            color: #666;
+            margin-top: 6px;
+            word-break: break-all;
+        }
+
+        /* Scan Log Table */
+        .scan-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .scan-table th,
+        .scan-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .scan-table th {
+            background: #f8f9fa;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #666;
+            font-weight: 600;
+        }
+
+        .scan-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .scan-table tr:hover td {
+            background: #f8f9fa;
+        }
+
+        .scan-retailer {
+            font-weight: 600;
+            color: #1a1a2e;
+            text-transform: capitalize;
+        }
+
+        .scan-file {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .scan-timestamp {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .scan-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .scan-stat {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .scan-stat strong {
+            color: #1a1a2e;
+        }
+
+        .service-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .service-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .service-badge.gpt {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .service-badge.docintel {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .service-badge.crop {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .service-badge.fallback {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .scan-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .scan-status.completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .scan-status.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .scan-status.partial {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .confidence-mini {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .confidence-bar-mini {
+            width: 50px;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .confidence-fill-mini {
+            height: 100%;
+            border-radius: 3px;
+        }
+
+        .confidence-fill-mini.high { background: #10b981; }
+        .confidence-fill-mini.medium { background: #f59e0b; }
+        .confidence-fill-mini.low { background: #ef4444; }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #999;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #8b5cf6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden { display: none !important; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success { background: #10b981; }
+        .toast.error { background: #ef4444; }
+        .toast.info { background: #8b5cf6; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .scan-table {
+                display: block;
+                overflow-x: auto;
+            }
+
+            .header {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>Diagnostics</h1>
+        <div class="mode-switcher">
+            <a href="review.html" class="mode-tab">Simple</a>
+            <a href="learning.html" class="mode-tab">Learning</a>
+            <a href="diagnostics.html" class="mode-tab active">Diagnostics</a>
+        </div>
+        <div class="header-actions">
+            <button class="refresh-btn" id="refresh-btn">Opdater</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- System Status -->
+        <div class="section-card">
+            <div class="section-header">
+                <h2>System Status</h2>
+            </div>
+            <div class="section-body">
+                <div class="status-grid" id="status-grid">
+                    <div class="status-item">
+                        <div class="status-icon">🤖</div>
+                        <div class="status-info">
+                            <div class="status-name">OpenAI GPT</div>
+                            <span class="status-badge loading" id="openai-status">Indlaeser...</span>
+                            <div class="status-details" id="openai-details"></div>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon">📄</div>
+                        <div class="status-info">
+                            <div class="status-name">Document Intelligence</div>
+                            <span class="status-badge loading" id="docintel-status">Indlaeser...</span>
+                            <div class="status-details" id="docintel-details"></div>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon">💾</div>
+                        <div class="status-info">
+                            <div class="status-name">Blob Storage</div>
+                            <span class="status-badge loading" id="storage-status">Indlaeser...</span>
+                            <div class="status-details" id="storage-details"></div>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-icon">⚡</div>
+                        <div class="status-info">
+                            <div class="status-name">Scanner</div>
+                            <span class="status-badge loading" id="scanner-status">Indlaeser...</span>
+                            <div class="status-details" id="scanner-details"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scan History -->
+        <div class="section-card">
+            <div class="section-header">
+                <h2>Seneste Scanninger</h2>
+            </div>
+            <div class="section-body" id="scans-container">
+                <div class="empty-state">
+                    <h3>Indlaeser scan historik...</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay hidden" id="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const SCANNER_API = 'https://func-dealscanner-scanner-prod.azurewebsites.net/api';
+        const API_BASE = 'https://func-dealscanner-prod.azurewebsites.net/api';
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadHealthStatus();
+            loadScanHistory();
+
+            document.getElementById('refresh-btn').addEventListener('click', () => {
+                loadHealthStatus();
+                loadScanHistory();
+            });
+        });
+
+        // Load health status from scanner function
+        async function loadHealthStatus() {
+            setStatusLoading('openai');
+            setStatusLoading('docintel');
+            setStatusLoading('storage');
+            setStatusLoading('scanner');
+
+            try {
+                const response = await fetch(`${SCANNER_API}/diagnostics/health`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+
+                // OpenAI
+                updateStatus('openai', data.openai);
+
+                // Document Intelligence
+                updateStatus('docintel', data.document_intelligence);
+
+                // Blob Storage
+                updateStatus('storage', data.blob_storage);
+
+                // Scanner
+                updateStatus('scanner', data.scanner);
+
+            } catch (e) {
+                console.error('Health check error:', e);
+                setStatusError('openai', 'Kunne ikke hente status');
+                setStatusError('docintel', 'Kunne ikke hente status');
+                setStatusError('storage', 'Kunne ikke hente status');
+                setStatusError('scanner', 'Kunne ikke hente status');
+            }
+        }
+
+        function setStatusLoading(service) {
+            const badge = document.getElementById(`${service}-status`);
+            badge.className = 'status-badge loading';
+            badge.textContent = 'Indlaeser...';
+            document.getElementById(`${service}-details`).textContent = '';
+        }
+
+        function setStatusError(service, message) {
+            const badge = document.getElementById(`${service}-status`);
+            badge.className = 'status-badge error';
+            badge.textContent = 'Fejl';
+            document.getElementById(`${service}-details`).textContent = message;
+        }
+
+        function updateStatus(service, data) {
+            const badge = document.getElementById(`${service}-status`);
+            const details = document.getElementById(`${service}-details`);
+
+            if (!data) {
+                badge.className = 'status-badge error';
+                badge.textContent = 'Ukendt';
+                details.textContent = 'Ingen data';
+                return;
+            }
+
+            // Determine status class
+            let statusClass = 'configured';
+            let statusText = 'Konfigureret';
+
+            if (data.status === 'active') {
+                statusClass = 'active';
+                statusText = 'Aktiv';
+            } else if (data.status === 'error' || data.status === 'auth_error') {
+                statusClass = 'error';
+                statusText = 'Fejl';
+            } else if (data.status === 'not_configured') {
+                statusClass = 'error';
+                statusText = 'Ikke konfigureret';
+            }
+
+            badge.className = `status-badge ${statusClass}`;
+            badge.textContent = statusText;
+
+            // Build details
+            let detailParts = [];
+            if (data.provider) detailParts.push(`Provider: ${data.provider}`);
+            if (data.endpoint) detailParts.push(`Endpoint: ${data.endpoint}`);
+            if (data.account_name) detailParts.push(`Konto: ${data.account_name}`);
+            if (data.version) detailParts.push(`Version: ${data.version}`);
+            if (data.message) detailParts.push(data.message);
+
+            details.textContent = detailParts.join(' | ');
+        }
+
+        // Load scan history
+        async function loadScanHistory() {
+            const container = document.getElementById('scans-container');
+
+            try {
+                const response = await fetch(`${API_BASE}/diagnostics/scans?limit=20`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+                const scans = data.scans || [];
+
+                if (scans.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Ingen scanninger endnu</h3>
+                            <p>Scan historik vises her efter forste scan.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = `
+                    <table class="scan-table">
+                        <thead>
+                            <tr>
+                                <th>Tidspunkt</th>
+                                <th>Butik / Fil</th>
+                                <th>Services</th>
+                                <th>Resultater</th>
+                                <th>Konf.</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scan-tbody">
+                            ${scans.map(scan => renderScanRow(scan)).join('')}
+                        </tbody>
+                    </table>
+                `;
+
+            } catch (e) {
+                console.error('Scan history error:', e);
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>Kunne ikke hente scan historik</h3>
+                        <p>${e.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderScanRow(scan) {
+            const timestamp = new Date(scan.Timestamp || scan.timestamp);
+            const formattedTime = formatTimestamp(timestamp);
+
+            const services = scan.ServicesUsed || scan.services_used || {};
+            const results = scan.Results || scan.results || {};
+            const status = scan.Status || scan.status || 'unknown';
+
+            const avgConf = results.AvgConfidence || results.avg_confidence || 0;
+            const confPercent = (avgConf * 100).toFixed(0);
+            const confClass = avgConf >= 0.8 ? 'high' : avgConf >= 0.6 ? 'medium' : 'low';
+
+            return `
+                <tr>
+                    <td>
+                        <span class="scan-timestamp">${formattedTime}</span>
+                    </td>
+                    <td>
+                        <div class="scan-retailer">${escapeHtml(scan.Retailer || scan.retailer || 'Ukendt')}</div>
+                        <div class="scan-file">${escapeHtml(scan.SourceFile || scan.source_file || '-')}</div>
+                    </td>
+                    <td>
+                        <div class="service-badges">
+                            ${renderServiceBadge(services.layout, 'Layout')}
+                            ${renderServiceBadge(services.normalization, 'Norm')}
+                            ${services.cropping === 'enabled' ? '<span class="service-badge crop">Crop</span>' : ''}
+                        </div>
+                    </td>
+                    <td>
+                        <div class="scan-stats">
+                            <span class="scan-stat"><strong>${results.OffersExtracted || results.offers_extracted || 0}</strong> tilbud</span>
+                            <span class="scan-stat"><strong>${results.OffersWithCandidates || results.offers_with_candidates || 0}</strong> m/kand.</span>
+                            <span class="scan-stat"><strong>${results.PagesScanned || results.pages_scanned || 0}</strong> sider</span>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="confidence-mini">
+                            <div class="confidence-bar-mini">
+                                <div class="confidence-fill-mini ${confClass}" style="width: ${confPercent}%"></div>
+                            </div>
+                            <span>${confPercent}%</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="scan-status ${status}">${statusLabel(status)}</span>
+                    </td>
+                </tr>
+            `;
+        }
+
+        function renderServiceBadge(service, label) {
+            if (!service) return '';
+
+            if (service.includes('document_intelligence') || service === 'document_intelligence') {
+                return `<span class="service-badge docintel">DocIntel</span>`;
+            }
+            if (service.includes('openai') || service.includes('gpt')) {
+                return `<span class="service-badge gpt">GPT</span>`;
+            }
+            if (service.includes('fallback') || service.includes('rule')) {
+                return `<span class="service-badge fallback">Fallback</span>`;
+            }
+
+            return `<span class="service-badge">${service}</span>`;
+        }
+
+        function statusLabel(status) {
+            const labels = {
+                'completed': 'Faerdig',
+                'failed': 'Fejlet',
+                'partial': 'Delvis'
+            };
+            return labels[status] || status;
+        }
+
+        function formatTimestamp(date) {
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            if (diffMins < 1) return 'Lige nu';
+            if (diffMins < 60) return `${diffMins} min siden`;
+            if (diffHours < 24) return `${diffHours} timer siden`;
+            if (diffDays === 1) return 'I gar';
+
+            return date.toLocaleDateString('da-DK', {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').classList.toggle('hidden', !show);
+        }
+    </script>
+</body>
+</html>
