@@ -4,6 +4,8 @@ Scanner V2 - Netto Tilbudsavis Scanner (Azure Function Version)
 
 Production-quality scanner for Netto PDF flyers.
 Adapted for Azure Functions with logging instead of print statements.
+
+Categories are now loaded dynamically from the API for easy updates.
 """
 
 import logging
@@ -15,28 +17,56 @@ from datetime import datetime
 
 import fitz  # PyMuPDF
 
+# Import category service for dynamic categories
+try:
+    from services.category_service import get_category_service
+    _category_service = get_category_service()
+except ImportError:
+    try:
+        from ..services.category_service import get_category_service
+        _category_service = get_category_service()
+    except ImportError:
+        _category_service = None
+        logging.warning("Category service not available, using fallback categories")
+
 
 class ScannerV2:
     """Production scanner for Netto flyers with all optimizations"""
 
-    # Product categories based on keywords
-    CATEGORIES = {
-        'Mejeri': ['mælk', 'smør', 'ost', 'yoghurt', 'skyr', 'fløde', 'æg', 'lactofree', 'lurpak', 'arla', 'philadelphia', 'buko', 'cream', 'creme fraiche'],
-        'Kød': ['kylling', 'oksekød', 'svinekød', 'flæsk', 'bacon', 'pølse', 'hakket', 'steak', 'mørbrad', 'and', 'lam', 'kalv', 'medister', 'frikadelle', 'kød', 'lever'],
-        'Fisk': ['laks', 'sild', 'rejer', 'torsk', 'makrel', 'tun', 'fisk', 'fiskefrikadeller', 'rogn', 'krabbe'],
-        'Frugt & Grønt': ['æble', 'appelsin', 'banan', 'tomat', 'agurk', 'salat', 'kartoffel', 'gulerod', 'løg', 'kål', 'ananas', 'clementiner', 'granatæble', 'pære', 'citron', 'avocado', 'melon', 'jordbær', 'hindbær', 'blåbær', 'svampe', 'champignon', 'squash', 'peberfrugt', 'broccoli'],
-        'Brød & Bagværk': ['brød', 'boller', 'rugbrød', 'toast', 'croissant', 'wienerbrød', 'kage', 'æbleskiver', 'bagværk', 'rundstykke', 'flute', 'ciabatta'],
-        'Drikkevarer': ['cola', 'fanta', 'sprite', 'øl', 'vin', 'juice', 'vand', 'sodavand', 'kakao', 'pepsi', 'carlsberg', 'tuborg', 'heineken', 'royal', 'whisky', 'whiskey', 'vodka', 'gin', 'rom', 'aquavit', 'likør', 'champagne', 'mousserende', 'cider'],
-        'Kaffe & Te': ['kaffe', 'te', 'espresso', 'nescafe', 'merrild', 'karat'],
-        'Kolonial': ['pasta', 'ris', 'mel', 'sukker', 'olie', 'eddike', 'sauce', 'ketchup', 'sennep', 'mayonnaise', 'remoulade', 'bouillon', 'krydderi', 'salt', 'peber', 'honning', 'marmelade', 'nutella', 'peanut'],
-        'Snacks': ['chips', 'slik', 'chokolade', 'nødder', 'popcorn', 'kiks', 'småkager', 'flødeboller', 'lakrids', 'vingummi', 'haribo', 'twist'],
-        'Frost': ['is', 'frost', 'frossen', 'pizza', 'pommes', 'fritter'],
-        'Konserves': ['konserves', 'dåse', 'survare', 'syltede', 'marmelade', 'pickles', 'oliven'],
-        'Pålæg': ['pålæg', 'skinke', 'salami', 'leverpostej', 'spegepølse', 'rullepølse'],
-        'Personlig pleje': ['shampoo', 'sæbe', 'tandpasta', 'deodorant', 'creme', 'showergel', 'hårpleje', 'bodylotion'],
-        'Rengøring': ['vaskemiddel', 'opvask', 'rengøring', 'affald', 'toiletpapir', 'køkkenrulle', 'skrald', 'poser'],
-        'Non-food': ['tøj', 'sko', 'strømper', 'handsker', 'tæppe', 'legetøj', 'elektronik', 'køkken', 'lampe', 'lys', 'batteri', 'pude', 'dyne', 'sengetøj'],
+    # Fallback categories if service unavailable
+    FALLBACK_CATEGORIES = {
+        'Mejeri': ['mælk', 'smør', 'ost', 'yoghurt', 'skyr', 'fløde', 'æg', 'arla', 'lurpak'],
+        'Kød': ['kylling', 'oksekød', 'svinekød', 'flæsk', 'bacon', 'pølse', 'hakket', 'kød', 'medister'],
+        'Fisk': ['laks', 'sild', 'rejer', 'torsk', 'makrel', 'tun', 'fisk'],
+        'Frugt & Grønt': ['æble', 'appelsin', 'banan', 'tomat', 'agurk', 'salat', 'kartoffel', 'gulerod'],
+        'Brød & Bagværk': ['brød', 'boller', 'rugbrød', 'kage', 'wienerbrød'],
+        'Drikkevarer': ['cola', 'juice', 'vand', 'sodavand', 'kaffe', 'te'],
+        'Øl & Vin': ['øl', 'vin', 'carlsberg', 'tuborg', 'whisky', 'champagne'],
+        'Kolonial': ['pasta', 'ris', 'sauce', 'ketchup', 'konserves'],
+        'Snacks': ['chips', 'slik', 'chokolade', 'nødder', 'popcorn'],
+        'Frost': ['is', 'frost', 'frossen', 'pizza'],
+        'Pålæg': ['pålæg', 'skinke', 'salami', 'leverpostej', 'spegepølse'],
+        'Personlig pleje': ['shampoo', 'tandpasta', 'deodorant', 'creme'],
+        'Rengøring': ['vaskemiddel', 'opvask', 'rengøring'],
+        'Husholdning': ['toiletpapir', 'køkkenrulle', 'folie'],
+        'Non-food': ['tøj', 'sko', 'legetøj', 'elektronik'],
     }
+
+    @classmethod
+    def get_categories(cls) -> Dict[str, List[str]]:
+        """Get categories from service or fallback."""
+        if _category_service:
+            try:
+                return _category_service.get_keywords_dict()
+            except Exception as e:
+                logging.warning(f"Failed to get categories from service: {e}")
+        return cls.FALLBACK_CATEGORIES
+
+    # Property for backwards compatibility
+    @property
+    def CATEGORIES(self) -> Dict[str, List[str]]:
+        """Dynamic categories property."""
+        return self.get_categories()
 
     # Skip patterns for non-product lines
     SKIP_PATTERNS = [

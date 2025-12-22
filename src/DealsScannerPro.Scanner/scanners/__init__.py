@@ -9,7 +9,79 @@ import logging
 from .netto_scanner import ScannerV2 as NettoScanner
 from .rema_scanner import RemaScanner
 
-__all__ = ['NettoScanner', 'RemaScanner', 'detect_store', 'get_scanner']
+__all__ = ['NettoScanner', 'RemaScanner', 'detect_store', 'get_scanner', 'SUPPORTED_STORES']
+
+logger = logging.getLogger(__name__)
+
+# Supported stores with their detection patterns
+STORE_PATTERNS = {
+    # Salling Group stores (similar format)
+    'netto': {
+        'keywords': ['netto', 'døgnnet', 'nettodag', 'netto-priser'],
+        'exclusive': ['netto'],  # Must have these to be certain
+        'scanner': 'netto'
+    },
+    'foetex': {
+        'keywords': ['føtex', 'foetex', 'fotex', 'føtex tilbud'],
+        'exclusive': ['føtex', 'foetex'],
+        'scanner': 'netto'  # Use Netto scanner (same Salling Group format)
+    },
+    'bilka': {
+        'keywords': ['bilka', 'bilka tilbud', 'bilkatilbud'],
+        'exclusive': ['bilka'],
+        'scanner': 'netto'  # Use Netto scanner (same Salling Group format)
+    },
+    # Coop stores
+    'superbrugsen': {
+        'keywords': ['superbrugsen', 'super brugsen', 'brugsen', 'dagli brugsen'],
+        'exclusive': ['superbrugsen', 'super brugsen'],
+        'scanner': 'netto'  # Generic scanner for now
+    },
+    'kvickly': {
+        'keywords': ['kvickly', 'kvickly tilbud'],
+        'exclusive': ['kvickly'],
+        'scanner': 'netto'
+    },
+    '365discount': {
+        'keywords': ['365discount', '365 discount', 'coop 365', '365'],
+        'exclusive': ['365discount', 'coop 365'],
+        'scanner': 'netto'
+    },
+    # Independent stores
+    'rema': {
+        'keywords': ['rema', 'rema1000', 'rema 1000', 'meget mere', 'altid billig'],
+        'exclusive': ['rema', 'rema1000', 'rema 1000'],
+        'scanner': 'rema'
+    },
+    'lidl': {
+        'keywords': ['lidl', 'lidl danmark'],
+        'exclusive': ['lidl'],
+        'scanner': 'netto'  # Generic scanner for now
+    },
+    'spar': {
+        'keywords': ['spar', 'eurospar', 'spar danmark'],
+        'exclusive': ['spar', 'eurospar'],
+        'scanner': 'netto'
+    },
+    'aldi': {
+        'keywords': ['aldi', 'aldi nord', 'aldi danmark'],
+        'exclusive': ['aldi'],
+        'scanner': 'netto'
+    },
+    'meny': {
+        'keywords': ['meny', 'meny tilbud'],
+        'exclusive': ['meny'],
+        'scanner': 'netto'
+    },
+    'irma': {
+        'keywords': ['irma', 'irma tilbud'],
+        'exclusive': ['irma'],
+        'scanner': 'netto'
+    }
+}
+
+# List of all supported stores
+SUPPORTED_STORES = list(STORE_PATTERNS.keys())
 
 
 def detect_store(pdf_content: bytes) -> str:
@@ -32,40 +104,32 @@ def detect_store(pdf_content: bytes) -> str:
             all_text += doc[i].get_text().lower() + " "
         doc.close()
 
-        # Rema 1000 specific patterns
-        rema_patterns = [
-            'rema', 'rema1000', 'rema 1000',
-            'meget mere', 'god pris', 'altid billig',
-            'frilandsgris', 'gram slot'
-        ]
+        # Score each store based on keyword matches
+        store_scores = {}
 
-        # Netto specific patterns
-        netto_patterns = [
-            'netto', 'døgnnet', 'nettodag'
-        ]
+        for store_id, patterns in STORE_PATTERNS.items():
+            # Check exclusive keywords first (high confidence)
+            for keyword in patterns.get('exclusive', []):
+                if keyword in all_text:
+                    logger.info(f"Store detected by exclusive keyword '{keyword}': {store_id}")
+                    return store_id
 
-        # Count matches for each store
-        rema_score = sum(1 for p in rema_patterns if p in all_text)
-        netto_score = sum(1 for p in netto_patterns if p in all_text)
+            # Count regular keyword matches
+            score = sum(1 for kw in patterns['keywords'] if kw in all_text)
+            if score > 0:
+                store_scores[store_id] = score
 
-        # Check for explicit store names first
-        if 'rema' in all_text or 'rema1000' in all_text:
-            return 'rema'
-        elif 'netto' in all_text:
-            return 'netto'
-        elif 'føtex' in all_text:
-            return 'foetex'
-        elif 'bilka' in all_text:
-            return 'bilka'
-        # Fall back to pattern scoring
-        elif rema_score > netto_score:
-            return 'rema'
-        elif netto_score > 0:
-            return 'netto'
-        else:
-            return 'netto'  # Default
+        # Return store with highest score
+        if store_scores:
+            best_store = max(store_scores.items(), key=lambda x: x[1])
+            logger.info(f"Store detected by score ({best_store[1]} matches): {best_store[0]}")
+            return best_store[0]
+
+        logger.warning("No store detected, defaulting to 'netto'")
+        return 'netto'
+
     except Exception as e:
-        logging.warning(f"Store detection failed: {e}, defaulting to netto")
+        logger.warning(f"Store detection failed: {e}, defaulting to netto")
         return 'netto'
 
 
@@ -81,8 +145,14 @@ def get_scanner(store: str):
     """
     store_lower = store.lower() if store else 'netto'
 
-    if store_lower == 'rema':
+    # Get scanner type from store patterns
+    scanner_type = 'netto'  # Default
+    if store_lower in STORE_PATTERNS:
+        scanner_type = STORE_PATTERNS[store_lower].get('scanner', 'netto')
+
+    if scanner_type == 'rema':
+        logger.info(f"Using RemaScanner for store: {store_lower}")
         return RemaScanner()
     else:
-        # Use Netto scanner as default (works for netto, foetex, bilka, etc.)
+        logger.info(f"Using NettoScanner for store: {store_lower}")
         return NettoScanner()
