@@ -104,6 +104,170 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
+# Diagnostics health endpoint - detailed system status
+@app.route(route="diagnostics/health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def diagnostics_health(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Detailed health check for diagnostics UI.
+    Returns status of all external services (OpenAI, Document Intelligence, Blob Storage).
+
+    GET /api/diagnostics/health
+    """
+    _lazy_import()
+
+    result = {
+        "timestamp": _datetime.utcnow().isoformat() + "Z" if _datetime else None,
+        "openai": _check_openai_status(),
+        "document_intelligence": _check_document_intelligence_status(),
+        "blob_storage": _check_blob_storage_status(),
+        "scanner": {
+            "configured": True,
+            "status": "active" if SCANNER_AVAILABLE else "fallback",
+            "version": "2.0.0"
+        }
+    }
+
+    return func.HttpResponse(
+        json.dumps(result, indent=2),
+        mimetype="application/json",
+        status_code=200
+    )
+
+
+def _check_openai_status() -> dict:
+    """Check OpenAI/Azure OpenAI configuration and connectivity."""
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("AZURE_OPENAI_API_KEY", "")
+    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+
+    if not api_key:
+        return {
+            "configured": False,
+            "status": "not_configured",
+            "message": "No API key found (OPENAI_API_KEY or AZURE_OPENAI_API_KEY)"
+        }
+
+    # Determine provider type
+    is_azure = bool(endpoint) or api_key.startswith("sk-") is False
+    provider = "azure_openai" if is_azure else "openai"
+
+    result = {
+        "configured": True,
+        "provider": provider,
+        "status": "configured",
+        "api_key_prefix": api_key[:8] + "..." if len(api_key) > 8 else "***"
+    }
+
+    if endpoint:
+        result["endpoint"] = endpoint[:50] + "..." if len(endpoint) > 50 else endpoint
+
+    # Try a simple API call to verify connectivity
+    try:
+        if _requests:
+            if is_azure and endpoint:
+                # Azure OpenAI - just check endpoint is reachable
+                test_url = endpoint.rstrip('/') + "/openai/models?api-version=2024-02-15-preview"
+                headers = {"api-key": api_key}
+            else:
+                # Standard OpenAI
+                test_url = "https://api.openai.com/v1/models"
+                headers = {"Authorization": f"Bearer {api_key}"}
+
+            response = _requests.get(test_url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                result["status"] = "active"
+                result["message"] = "API connection successful"
+            else:
+                result["status"] = "error"
+                result["message"] = f"API returned status {response.status_code}"
+    except Exception as e:
+        result["status"] = "error"
+        result["message"] = f"Connection failed: {str(e)[:100]}"
+
+    return result
+
+
+def _check_document_intelligence_status() -> dict:
+    """Check Azure Document Intelligence configuration."""
+    endpoint = os.environ.get("DOCUMENT_INTELLIGENCE_ENDPOINT", "")
+    api_key = os.environ.get("DOCUMENT_INTELLIGENCE_KEY", "")
+
+    if not endpoint or not api_key:
+        return {
+            "configured": False,
+            "status": "not_configured",
+            "message": "Missing DOCUMENT_INTELLIGENCE_ENDPOINT or DOCUMENT_INTELLIGENCE_KEY"
+        }
+
+    result = {
+        "configured": True,
+        "status": "configured",
+        "endpoint": endpoint[:50] + "..." if len(endpoint) > 50 else endpoint,
+        "api_key_prefix": api_key[:8] + "..." if len(api_key) > 8 else "***"
+    }
+
+    # Try to check service health
+    try:
+        if _requests:
+            # Check the info endpoint
+            test_url = endpoint.rstrip('/') + "/documentintelligence/info?api-version=2024-02-29-preview"
+            headers = {"Ocp-Apim-Subscription-Key": api_key}
+
+            response = _requests.get(test_url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                result["status"] = "active"
+                result["message"] = "Service connection successful"
+            elif response.status_code == 401:
+                result["status"] = "auth_error"
+                result["message"] = "Authentication failed - check API key"
+            else:
+                result["status"] = "error"
+                result["message"] = f"Service returned status {response.status_code}"
+    except Exception as e:
+        result["status"] = "error"
+        result["message"] = f"Connection failed: {str(e)[:100]}"
+
+    return result
+
+
+def _check_blob_storage_status() -> dict:
+    """Check Azure Blob Storage configuration."""
+    connection_string = os.environ.get("AzureWebJobsStorage", "")
+
+    if not connection_string:
+        return {
+            "configured": False,
+            "status": "not_configured",
+            "message": "Missing AzureWebJobsStorage connection string"
+        }
+
+    result = {
+        "configured": True,
+        "status": "configured"
+    }
+
+    # Extract account name from connection string
+    try:
+        if "AccountName=" in connection_string:
+            account_name = connection_string.split("AccountName=")[1].split(";")[0]
+            result["account_name"] = account_name
+    except:
+        pass
+
+    # Try to connect
+    try:
+        if _BlobServiceClient:
+            blob_service = _BlobServiceClient.from_connection_string(connection_string)
+            # Try to get account info (quick operation)
+            account_info = blob_service.get_account_information()
+            result["status"] = "active"
+            result["message"] = "Storage connection successful"
+    except Exception as e:
+        result["status"] = "error"
+        result["message"] = f"Connection failed: {str(e)[:100]}"
+
+    return result
+
+
 # Manual scan endpoint (for testing)
 @app.route(route="scan", methods=["POST"])
 def manual_scan(req: func.HttpRequest) -> func.HttpResponse:
