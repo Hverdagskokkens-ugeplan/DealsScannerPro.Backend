@@ -118,6 +118,40 @@
             content: "🎓";
         }
 
+        .mode-switcher {
+            display: flex;
+            gap: 4px;
+            background: rgba(255,255,255,0.15);
+            padding: 4px;
+            border-radius: 8px;
+        }
+
+        .mode-tab {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .mode-tab.active {
+            background: white;
+            color: #7c3aed;
+        }
+
+        .mode-tab:not(.active) {
+            background: transparent;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .mode-tab:not(.active):hover {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
         .header-actions {
             display: flex;
             gap: 15px;
@@ -587,6 +621,10 @@
     <div class="app" id="app">
         <header class="header">
             <h1>Learning Mode</h1>
+            <div class="mode-switcher">
+                <a href="review.html" class="mode-tab">Simple</a>
+                <a href="learning.html" class="mode-tab active">Learning</a>
+            </div>
             <div class="header-actions">
                 <span class="user-info" id="user-email"></span>
                 <button class="logout-btn" id="logout-btn">Log ud</button>
