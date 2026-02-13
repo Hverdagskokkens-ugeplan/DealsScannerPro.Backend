@@ -119,6 +119,15 @@ public class ReprocessEndpoints
                 rule_id = d.RuleId,
                 rule_type = d.RuleType,
                 hit_count = d.HitCount
+            }),
+            sku_matches_applied = r.SkuMatchesApplied,
+            sku_splits_applied = r.SkuSplitsApplied,
+            sku_override_offers_modified = r.SkuOverrideOffersModified,
+            sku_overrides_applied = r.SkuOverridesAppliedDetails.Select(d => new
+            {
+                override_id = d.OverrideId,
+                override_type = d.OverrideType,
+                hit_count = d.HitCount
             })
         };
     }

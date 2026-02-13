@@ -19,6 +19,12 @@ public class ReprocessResult
     public MetricSnapshot After { get; set; } = new();
     public ImprovementMetrics Improvement { get; set; } = new();
     public List<RuleApplicationDetail> RulesAppliedDetails { get; set; } = new();
+
+    // SKU override results
+    public int SkuMatchesApplied { get; set; }
+    public int SkuSplitsApplied { get; set; }
+    public int SkuOverrideOffersModified { get; set; }
+    public List<SkuOverrideApplicationDetail> SkuOverridesAppliedDetails { get; set; } = new();
 }
 
 public class MetricSnapshot

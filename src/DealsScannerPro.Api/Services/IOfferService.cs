@@ -19,10 +19,6 @@ public interface IOfferService
     Task DeleteOfferAsync(string partitionKey, string rowKey, string deletedBy, string reason);
     Task BatchApproveAsync(List<string> offerIds, string approvedBy);
 
-    // SKU Overrides
-    Task<SkuOverride> CreateSkuOverrideAsync(SkuOverride skuOverride);
-    Task<List<SkuOverride>> GetSkuOverridesAsync(string retailer);
-
     // Corrections
     Task<List<CorrectionEvent>> GetCorrectionEventsAsync(string offerId);
 }

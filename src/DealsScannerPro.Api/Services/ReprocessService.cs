@@ -10,6 +10,7 @@ public class ReprocessService : IReprocessService
 {
     private readonly TableClient _offersTable;
     private readonly IRetailerRuleService _ruleService;
+    private readonly ISkuOverrideService _skuOverrideService;
     private readonly IProcessingRunService _runService;
     private readonly ILogger<ReprocessService> _logger;
 
@@ -18,11 +19,13 @@ public class ReprocessService : IReprocessService
 
     public ReprocessService(
         IRetailerRuleService ruleService,
+        ISkuOverrideService skuOverrideService,
         IProcessingRunService runService,
         IConfiguration configuration,
         ILogger<ReprocessService> logger)
     {
         _ruleService = ruleService;
+        _skuOverrideService = skuOverrideService;
         _runService = runService;
         _logger = logger;
 
@@ -194,6 +197,42 @@ public class ReprocessService : IReprocessService
             }
         }
 
+        // 8b. Apply SKU overrides
+        var overrideResult = await _skuOverrideService.ApplyOverridesAsync(retailer, offers);
+
+        // Handle MATCH RowKey changes (SkuKey changed but RowKey hasn't)
+        foreach (var offer in offers.Where(o => o.SkuKey != null && o.SkuKey != o.RowKey && o.Status != OfferStatus.Deleted))
+        {
+            // Soft-delete old entity
+            var oldOffer = await _offersTable.GetEntityAsync<Offer>(offer.PartitionKey, offer.RowKey);
+            if (oldOffer?.Value != null)
+            {
+                var toDelete = oldOffer.Value;
+                toDelete.Status = OfferStatus.Deleted;
+                toDelete.ReviewReason = "Replaced by SKU MATCH override";
+                await _offersTable.UpsertEntityAsync(toDelete, TableUpdateMode.Replace);
+            }
+
+            // Upsert as new entity with updated RowKey
+            offer.RowKey = offer.SkuKey!;
+            await _offersTable.UpsertEntityAsync(offer, TableUpdateMode.Replace);
+        }
+
+        // Handle SPLIT new offers
+        foreach (var newOffer in overrideResult.NewOffersFromSplits)
+        {
+            await _offersTable.UpsertEntityAsync(newOffer, TableUpdateMode.Replace);
+        }
+
+        // Persist offers marked deleted by splits
+        foreach (var offer in offers.Where(o => o.Status == OfferStatus.Deleted && o.ReviewReason != null && o.ReviewReason.Contains("Split by SKU override")))
+        {
+            await _offersTable.UpsertEntityAsync(offer, TableUpdateMode.Replace);
+        }
+
+        // Add split offers to offers list for snapshot
+        offers.AddRange(overrideResult.NewOffersFromSplits);
+
         // 9. Snapshot after metrics (re-read modified offers in memory)
         var after = SnapshotMetrics(offers);
 
@@ -223,7 +262,11 @@ public class ReprocessService : IReprocessService
                     RuleType = rule?.RuleType ?? "unknown",
                     HitCount = kvp.Value
                 };
-            }).ToList()
+            }).ToList(),
+            SkuMatchesApplied = overrideResult.MatchesApplied,
+            SkuSplitsApplied = overrideResult.SplitsApplied,
+            SkuOverrideOffersModified = overrideResult.OffersModified,
+            SkuOverridesAppliedDetails = overrideResult.Details
         };
 
         _logger.LogInformation(

@@ -9,7 +9,6 @@ namespace DealsScannerPro.Api.Services;
 public class OfferService : IOfferService
 {
     private readonly TableClient _offersTable;
-    private readonly TableClient _skuOverridesTable;
     private readonly TableClient _correctionsTable;
     private readonly ILogger<OfferService> _logger;
     private const double ConfidenceThreshold = 0.9;
@@ -24,12 +23,10 @@ public class OfferService : IOfferService
         var serviceClient = new TableServiceClient(connectionString);
 
         _offersTable = serviceClient.GetTableClient("Offers");
-        _skuOverridesTable = serviceClient.GetTableClient("SkuOverrides");
         _correctionsTable = serviceClient.GetTableClient("CorrectionEvents");
 
         // Ensure tables exist
         _offersTable.CreateIfNotExists();
-        _skuOverridesTable.CreateIfNotExists();
         _correctionsTable.CreateIfNotExists();
     }
 
@@ -531,28 +528,6 @@ public class OfferService : IOfferService
                 Reason = "Batch approved"
             }, approvedBy);
         }
-    }
-
-    public async Task<SkuOverride> CreateSkuOverrideAsync(SkuOverride skuOverride)
-    {
-        skuOverride.PartitionKey = skuOverride.Retailer.ToLowerInvariant();
-        skuOverride.RowKey = $"{skuOverride.OverrideType}_{Guid.NewGuid():N}";
-
-        await _skuOverridesTable.AddEntityAsync(skuOverride);
-        return skuOverride;
-    }
-
-    public async Task<List<SkuOverride>> GetSkuOverridesAsync(string retailer)
-    {
-        var results = new List<SkuOverride>();
-
-        await foreach (var entity in _skuOverridesTable.QueryAsync<SkuOverride>(
-            $"PartitionKey eq '{retailer.ToLowerInvariant()}' and IsActive eq true"))
-        {
-            results.Add(entity);
-        }
-
-        return results;
     }
 
     public async Task<List<CorrectionEvent>> GetCorrectionEventsAsync(string offerId)
