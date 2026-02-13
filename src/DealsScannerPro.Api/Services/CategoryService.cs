@@ -14,7 +14,7 @@ public class CategoryService : ICategoryService
     // In-memory cache with expiration
     private static List<Category>? _cachedCategories;
     private static DateTime _cacheExpiration = DateTime.MinValue;
-    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
     private static readonly object _cacheLock = new();
 
     public CategoryService(IConfiguration configuration, ILogger<CategoryService> logger)

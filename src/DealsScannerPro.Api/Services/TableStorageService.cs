@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -13,6 +14,18 @@ public class TableStorageService : ITableStorageService
     private readonly TableClient _tilbudTable;
     private readonly TableClient _butikkerTable;
     private readonly ILogger<TableStorageService> _logger;
+
+    // Stores cache (1 hour)
+    private static List<Butik>? _cachedButikker;
+    private static DateTime _butikkerCacheExpiration = DateTime.MinValue;
+    private static readonly object _butikkerCacheLock = new();
+    private static readonly TimeSpan ButikkerCacheDuration = TimeSpan.FromHours(1);
+
+    // Deals caches (5 minutes)
+    private static readonly ConcurrentDictionary<string, (List<Tilbud> Data, DateTime Expiration)> _tilbudCache = new();
+    private static readonly ConcurrentDictionary<string, (Tilbud? Data, DateTime Expiration)> _tilbudByIdCache = new();
+    private static readonly ConcurrentDictionary<string, (List<Tilbud> Data, DateTime Expiration)> _tilbudByDateCache = new();
+    private static readonly TimeSpan TilbudCacheDuration = TimeSpan.FromMinutes(5);
 
     public TableStorageService(IConfiguration configuration, ILogger<TableStorageService> logger)
     {
@@ -80,6 +93,11 @@ public class TableStorageService : ITableStorageService
         _logger.LogInformation("Uploaded {Count} tilbud for {Butik} ({From} - {To})",
             count, butik, gyldigFra, gyldigTil);
 
+        // Invalidate deals caches after upload
+        _tilbudCache.Clear();
+        _tilbudByIdCache.Clear();
+        _tilbudByDateCache.Clear();
+
         return count;
     }
 
@@ -97,6 +115,13 @@ public class TableStorageService : ITableStorageService
 
     public async Task<List<Tilbud>> GetTilbudAsync(string? butik = null, string? kategori = null, int? maxResults = 100)
     {
+        var cacheKey = $"{butik}|{kategori}|{maxResults}";
+
+        if (_tilbudCache.TryGetValue(cacheKey, out var cached) && DateTime.UtcNow < cached.Expiration)
+        {
+            return cached.Data;
+        }
+
         var results = new List<Tilbud>();
         var filter = "";
 
@@ -121,24 +146,42 @@ public class TableStorageService : ITableStorageService
             if (results.Count >= maxResults) break;
         }
 
+        _tilbudCache[cacheKey] = (results, DateTime.UtcNow.Add(TilbudCacheDuration));
         return results;
     }
 
     public async Task<Tilbud?> GetTilbudByIdAsync(string partitionKey, string rowKey)
     {
+        var cacheKey = $"{partitionKey}|{rowKey}";
+
+        if (_tilbudByIdCache.TryGetValue(cacheKey, out var cached) && DateTime.UtcNow < cached.Expiration)
+        {
+            return cached.Data;
+        }
+
         try
         {
             var response = await _tilbudTable.GetEntityAsync<Tilbud>(partitionKey, rowKey);
+            _tilbudByIdCache[cacheKey] = (response.Value, DateTime.UtcNow.Add(TilbudCacheDuration));
             return response.Value;
         }
         catch (Azure.RequestFailedException ex) when (ex.Status == 404)
         {
+            _tilbudByIdCache[cacheKey] = (null, DateTime.UtcNow.Add(TilbudCacheDuration));
             return null;
         }
     }
 
     public async Task<List<Butik>> GetButikkerAsync()
     {
+        lock (_butikkerCacheLock)
+        {
+            if (_cachedButikker != null && DateTime.UtcNow < _butikkerCacheExpiration)
+            {
+                return _cachedButikker;
+            }
+        }
+
         var results = new List<Butik>();
 
         await foreach (var entity in _butikkerTable.QueryAsync<Butik>(b => b.PartitionKey == "butikker"))
@@ -146,13 +189,25 @@ public class TableStorageService : ITableStorageService
             results.Add(entity);
         }
 
+        lock (_butikkerCacheLock)
+        {
+            _cachedButikker = results;
+            _butikkerCacheExpiration = DateTime.UtcNow.Add(ButikkerCacheDuration);
+        }
+
         return results;
     }
 
     public async Task<List<Tilbud>> GetTilbudByDateAsync(DateTime dato)
     {
-        var results = new List<Tilbud>();
         var dateString = dato.ToString("yyyy-MM-dd");
+
+        if (_tilbudByDateCache.TryGetValue(dateString, out var cached) && DateTime.UtcNow < cached.Expiration)
+        {
+            return cached.Data;
+        }
+
+        var results = new List<Tilbud>();
 
         // Filter: GyldigFra <= dato AND GyldigTil >= dato
         var filter = $"GyldigFra le datetime'{dateString}T00:00:00Z' and GyldigTil ge datetime'{dateString}T00:00:00Z'";
@@ -161,6 +216,8 @@ public class TableStorageService : ITableStorageService
         {
             results.Add(entity);
         }
+
+        _tilbudByDateCache[dateString] = (results, DateTime.UtcNow.Add(TilbudCacheDuration));
 
         _logger.LogInformation("Found {Count} tilbud valid for date {Date}", results.Count, dateString);
         return results;
