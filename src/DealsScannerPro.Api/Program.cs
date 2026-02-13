@@ -20,6 +20,7 @@ var host = new HostBuilder()
         services.AddSingleton<ISkuOverrideService, SkuOverrideService>();
         services.AddSingleton<IReprocessService, ReprocessService>();
         services.AddSingleton<IProcessingRunService, ProcessingRunService>();
+        services.AddSingleton<IProductAliasService, ProductAliasService>();
     })
     .Build();
 
