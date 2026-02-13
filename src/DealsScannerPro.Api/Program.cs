@@ -17,6 +17,7 @@ var host = new HostBuilder()
         services.AddSingleton<IOfferService, OfferService>();
         services.AddSingleton<IScanLogService, ScanLogService>();
         services.AddSingleton<IRetailerRuleService, RetailerRuleService>();
+        services.AddSingleton<IReprocessService, ReprocessService>();
     })
     .Build();
 
