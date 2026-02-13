@@ -10,11 +10,13 @@ public class OfferService : IOfferService
 {
     private readonly TableClient _offersTable;
     private readonly TableClient _correctionsTable;
+    private readonly IFuzzySearchService _fuzzyService;
     private readonly ILogger<OfferService> _logger;
     private const double ConfidenceThreshold = 0.9;
 
-    public OfferService(IConfiguration configuration, ILogger<OfferService> logger)
+    public OfferService(IConfiguration configuration, IFuzzySearchService fuzzyService, ILogger<OfferService> logger)
     {
+        _fuzzyService = fuzzyService;
         _logger = logger;
 
         var connectionString = configuration["TableStorageConnection"]
@@ -548,6 +550,136 @@ public class OfferService : IOfferService
         }
 
         return results.OrderByDescending(c => c.CorrectedAt).ToList();
+    }
+
+    public async Task<ShoppingListResult> MatchShoppingListAsync(ShoppingListRequest request)
+    {
+        // Fetch all published offers valid for the date
+        var query = new OfferQuery
+        {
+            ValidOn = request.Date ?? DateTime.Today,
+            Status = OfferStatus.Published,
+            MaxResults = 1000
+        };
+
+        var offers = await GetOffersAsync(query);
+
+        // Filter by retailers if specified
+        if (request.Retailers?.Count > 0)
+        {
+            var retailerSet = request.Retailers.Select(r => r.ToLowerInvariant()).ToHashSet();
+            offers = offers.Where(o => retailerSet.Contains(o.Retailer)).ToList();
+        }
+
+        var result = new ShoppingListResult();
+
+        foreach (var item in request.Items)
+        {
+            var termLower = item.Trim().ToLowerInvariant();
+            var itemResult = new ShoppingListItemResult { SearchTerm = item.Trim() };
+
+            // Score every offer against this search term
+            var scored = offers
+                .Select(o => new { Offer = o, Score = CalculateMatchScore(termLower, o) })
+                .Where(x => x.Score > 0)
+                .OrderByDescending(x => x.Score)
+                .ThenBy(x => x.Offer.UnitPriceValue ?? double.MaxValue)
+                .Take(3)
+                .ToList();
+
+            foreach (var s in scored)
+            {
+                var o = s.Offer;
+                itemResult.Matches.Add(new ShoppingListMatch
+                {
+                    OfferId = $"{o.PartitionKey}|{o.RowKey}",
+                    Retailer = o.Retailer,
+                    ProductNorm = o.ProductNorm,
+                    BrandNorm = o.BrandNorm,
+                    VariantNorm = o.VariantNorm,
+                    ProductTextRaw = o.ProductTextRaw,
+                    Category = o.Category,
+                    PriceValue = o.PriceValue,
+                    UnitPriceValue = o.UnitPriceValue,
+                    UnitPriceUnit = o.UnitPriceUnit,
+                    NetAmountValue = o.NetAmountValue,
+                    NetAmountUnit = o.NetAmountUnit,
+                    ValidFrom = o.ValidFrom,
+                    ValidTo = o.ValidTo,
+                    MatchScore = Math.Round(s.Score, 2)
+                });
+            }
+
+            result.Results.Add(itemResult);
+        }
+
+        // Build summary
+        var notFound = result.Results.Where(r => r.Matches.Count == 0).Select(r => r.SearchTerm).ToList();
+        result.Summary = new ShoppingListSummary
+        {
+            TotalItems = request.Items.Count,
+            ItemsMatched = result.Results.Count(r => r.Matches.Count > 0),
+            ItemsNotFound = notFound.Count,
+            NotFound = notFound
+        };
+
+        _logger.LogInformation(
+            "MatchShoppingList: {Total} items, {Matched} matched, {NotFound} not found",
+            result.Summary.TotalItems, result.Summary.ItemsMatched, result.Summary.ItemsNotFound);
+
+        return result;
+    }
+
+    private double CalculateMatchScore(string termLower, Offer offer)
+    {
+        var productNorm = offer.ProductNorm?.ToLowerInvariant() ?? "";
+        var brandNorm = offer.BrandNorm?.ToLowerInvariant() ?? "";
+        var productTextRaw = offer.ProductTextRaw?.ToLowerInvariant() ?? "";
+        var category = offer.Category?.ToLowerInvariant() ?? "";
+
+        // Priority 1: Exact substring in ProductNorm (0.90-1.00 scaled by coverage)
+        if (!string.IsNullOrEmpty(productNorm) && productNorm.Contains(termLower))
+        {
+            double coverage = (double)termLower.Length / productNorm.Length;
+            return 0.90 + (0.10 * Math.Min(coverage, 1.0));
+        }
+
+        // Priority 2: Exact substring in BrandNorm + ProductNorm combined
+        if (!string.IsNullOrEmpty(brandNorm))
+        {
+            var combined = $"{brandNorm} {productNorm}";
+            if (combined.Contains(termLower))
+                return 0.88;
+        }
+
+        // Priority 3: Exact substring in ProductTextRaw
+        if (!string.IsNullOrEmpty(productTextRaw) && productTextRaw.Contains(termLower))
+            return 0.80;
+
+        // Priority 4: Fuzzy match in ProductNorm (0.64-0.80 scaled by distance)
+        if (!string.IsNullOrEmpty(productNorm) && _fuzzyService.IsFuzzyMatch(productNorm, termLower))
+        {
+            // Split productNorm into words and find the best matching word
+            var words = productNorm.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            int bestDistance = int.MaxValue;
+            foreach (var word in words)
+            {
+                var dist = _fuzzyService.LevenshteinDistance(word, termLower);
+                if (dist < bestDistance) bestDistance = dist;
+            }
+            // Scale: distance 1 → 0.80, distance 2 → 0.72, distance 3+ → 0.64
+            return bestDistance <= 1 ? 0.80 : bestDistance <= 2 ? 0.72 : 0.64;
+        }
+
+        // Priority 5: Fuzzy match in BrandNorm
+        if (!string.IsNullOrEmpty(brandNorm) && _fuzzyService.IsFuzzyMatch(brandNorm, termLower))
+            return 0.65;
+
+        // Priority 6: Category match
+        if (!string.IsNullOrEmpty(category) && category.Contains(termLower))
+            return 0.50;
+
+        return 0;
     }
 
     private static string BuildReviewReason(ScannedOffer offer, string? skuKey)

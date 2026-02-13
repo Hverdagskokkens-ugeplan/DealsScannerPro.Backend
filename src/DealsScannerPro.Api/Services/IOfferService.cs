@@ -14,6 +14,9 @@ public interface IOfferService
     Task<List<Offer>> GetOffersForReviewAsync(int maxResults = 50);
     Task<List<Offer>> SearchOffersAsync(string? searchTerm, DateTime? date, List<string>? retailers);
 
+    // Shopping list matching
+    Task<ShoppingListResult> MatchShoppingListAsync(ShoppingListRequest request);
+
     // Review
     Task<Offer> UpdateOfferAsync(string partitionKey, string rowKey, OfferUpdate update, string reviewedBy);
     Task DeleteOfferAsync(string partitionKey, string rowKey, string deletedBy, string reason);
@@ -63,4 +66,50 @@ public class SaveResult
     public int Skipped { get; set; }
     public int Errors { get; set; }
     public List<string> ErrorMessages { get; set; } = new();
+}
+
+public class ShoppingListRequest
+{
+    public List<string> Items { get; set; } = new();
+    public DateTime? Date { get; set; }
+    public List<string>? Retailers { get; set; }
+}
+
+public class ShoppingListResult
+{
+    public List<ShoppingListItemResult> Results { get; set; } = new();
+    public ShoppingListSummary Summary { get; set; } = new();
+}
+
+public class ShoppingListItemResult
+{
+    public string SearchTerm { get; set; } = string.Empty;
+    public List<ShoppingListMatch> Matches { get; set; } = new();
+}
+
+public class ShoppingListMatch
+{
+    public string OfferId { get; set; } = string.Empty;
+    public string Retailer { get; set; } = string.Empty;
+    public string ProductNorm { get; set; } = string.Empty;
+    public string? BrandNorm { get; set; }
+    public string? VariantNorm { get; set; }
+    public string ProductTextRaw { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public double? PriceValue { get; set; }
+    public double? UnitPriceValue { get; set; }
+    public string? UnitPriceUnit { get; set; }
+    public double? NetAmountValue { get; set; }
+    public string? NetAmountUnit { get; set; }
+    public DateTime ValidFrom { get; set; }
+    public DateTime ValidTo { get; set; }
+    public double MatchScore { get; set; }
+}
+
+public class ShoppingListSummary
+{
+    public int TotalItems { get; set; }
+    public int ItemsMatched { get; set; }
+    public int ItemsNotFound { get; set; }
+    public List<string> NotFound { get; set; } = new();
 }
