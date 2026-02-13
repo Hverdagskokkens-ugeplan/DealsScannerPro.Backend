@@ -318,11 +318,11 @@ public class ProductAliasEndpoints
 
     /// <summary>
     /// Suggest matching aliases for given product attributes.
-    /// GET /api/product-aliases/suggest?brand_norm=Lurpak&product_norm=Smor
+    /// GET /api/product-alias-suggest?brand_norm=Lurpak&product_norm=Smor
     /// </summary>
     [Function("SuggestProductAliases")]
     public async Task<HttpResponseData> SuggestProductAliases(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "product-aliases/suggest")] HttpRequestData req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "product-alias-suggest")] HttpRequestData req)
     {
         try
         {
@@ -368,11 +368,11 @@ public class ProductAliasEndpoints
 
     /// <summary>
     /// Resolve a SKU key to its product alias.
-    /// GET /api/product-aliases/resolve?sku_key=...&retailer=netto
+    /// GET /api/product-alias-resolve?sku_key=...&retailer=netto
     /// </summary>
     [Function("ResolveProductAlias")]
     public async Task<HttpResponseData> ResolveProductAlias(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "product-aliases/resolve")] HttpRequestData req)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "product-alias-resolve")] HttpRequestData req)
     {
         try
         {
