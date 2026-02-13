@@ -10,6 +10,7 @@ public class ReprocessService : IReprocessService
 {
     private readonly TableClient _offersTable;
     private readonly IRetailerRuleService _ruleService;
+    private readonly IProcessingRunService _runService;
     private readonly ILogger<ReprocessService> _logger;
 
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
@@ -17,10 +18,12 @@ public class ReprocessService : IReprocessService
 
     public ReprocessService(
         IRetailerRuleService ruleService,
+        IProcessingRunService runService,
         IConfiguration configuration,
         ILogger<ReprocessService> logger)
     {
         _ruleService = ruleService;
+        _runService = runService;
         _logger = logger;
 
         var connectionString = configuration["TableStorageConnection"]
@@ -33,12 +36,24 @@ public class ReprocessService : IReprocessService
 
     public async Task<ReprocessResult> ReprocessAsync(string flyerId, string triggeredBy, string? reason)
     {
-        var runId = Guid.NewGuid().ToString("N");
+        // 1. Parse retailer from flyerId (e.g. "netto_2025-12-22_2025-12-28" → "netto")
+        var retailer = ExtractRetailer(flyerId);
+
+        // Create processing run record
+        var processingRun = await _runService.CreateRunAsync(new CreateRunRequest
+        {
+            FlyerId = flyerId,
+            Retailer = retailer,
+            TriggerType = "reprocess",
+            TriggeredBy = triggeredBy
+        });
+        var runId = processingRun.RunId;
+
         _logger.LogInformation("Reprocess started: RunId={RunId}, FlyerId={FlyerId}, TriggeredBy={TriggeredBy}",
             runId, flyerId, triggeredBy);
 
-        // 1. Parse retailer from flyerId (e.g. "netto_2025-12-22_2025-12-28" → "netto")
-        var retailer = ExtractRetailer(flyerId);
+        try
+        {
 
         // 2. Query all offers in the partition
         var offers = new List<Offer>();
@@ -215,7 +230,34 @@ public class ReprocessService : IReprocessService
             "Reprocess complete: RunId={RunId}, Modified={Modified}, Skipped={Skipped}, Errors={Errors}",
             runId, modifiedOffers.Count, skippedCount, errorCount);
 
+        // Complete processing run with metrics
+        var activeOffers = offers.Where(o => o.Status != OfferStatus.Deleted).ToList();
+        await _runService.CompleteRunAsync(flyerId, runId, new CompleteRunRequest
+        {
+            Metrics = new Models.RunMetrics
+            {
+                TotalOffers = activeOffers.Count,
+                HighConfidence = activeOffers.Count(o => o.Confidence >= 0.9),
+                MediumConfidence = activeOffers.Count(o => o.Confidence >= 0.7 && o.Confidence < 0.9),
+                LowConfidence = activeOffers.Count(o => o.Confidence < 0.7),
+                AvgConfidence = activeOffers.Count > 0
+                    ? Math.Round(activeOffers.Average(o => o.Confidence), 4)
+                    : 0,
+                ByCategory = activeOffers
+                    .GroupBy(o => o.Category ?? "Andet")
+                    .ToDictionary(g => g.Key, g => g.Count())
+            },
+            OffersCreated = 0,
+            OffersUpdated = modifiedOffers.Count
+        });
+
         return result;
+        }
+        catch (Exception ex)
+        {
+            await _runService.FailRunAsync(flyerId, runId, ex.Message);
+            throw;
+        }
     }
 
     private static string ExtractRetailer(string flyerId)

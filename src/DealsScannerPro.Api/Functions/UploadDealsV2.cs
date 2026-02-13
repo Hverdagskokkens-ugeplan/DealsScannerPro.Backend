@@ -16,15 +16,18 @@ namespace DealsScannerPro.Api.Functions;
 public class UploadDealsV2
 {
     private readonly IOfferService _offerService;
+    private readonly IProcessingRunService _runService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<UploadDealsV2> _logger;
 
     public UploadDealsV2(
         IOfferService offerService,
+        IProcessingRunService runService,
         IConfiguration configuration,
         ILogger<UploadDealsV2> logger)
     {
         _offerService = offerService;
+        _runService = runService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -97,12 +100,51 @@ public class UploadDealsV2
                     offer.SkuKey?[..Math.Min(30, offer.SkuKey?.Length ?? 0)]);
             }
 
+            // Build flyerId for processing run tracking
+            var retailer = (request.Meta?.Retailer ?? "unknown").ToLowerInvariant();
+            var validFrom = DateTime.TryParse(request.Meta?.ValidFrom, out var vf)
+                ? vf : DateTime.UtcNow;
+            var validTo = DateTime.TryParse(request.Meta?.ValidTo, out var vt)
+                ? vt : DateTime.UtcNow.AddDays(7);
+            var flyerId = $"{retailer}_{validFrom:yyyy-MM-dd}_{validTo:yyyy-MM-dd}";
+
+            // Create processing run
+            var processingRun = await _runService.CreateRunAsync(new CreateRunRequest
+            {
+                FlyerId = flyerId,
+                Retailer = retailer,
+                TriggerType = "upload",
+                TriggeredBy = "scanner"
+            });
+
             // Save offers
             var result = await _offerService.SaveOffersAsync(request);
 
             _logger.LogInformation(
                 "V2 Upload complete: saved={Saved}, skipped={Skipped}, errors={Errors}",
                 result.Saved, result.Skipped, result.Errors);
+
+            // Complete processing run with metrics
+            var metrics = new Models.RunMetrics
+            {
+                TotalOffers = request.Offers.Count,
+                HighConfidence = request.Offers.Count(o => o.Confidence >= 0.9),
+                MediumConfidence = request.Offers.Count(o => o.Confidence >= 0.7 && o.Confidence < 0.9),
+                LowConfidence = request.Offers.Count(o => o.Confidence < 0.7),
+                AvgConfidence = request.Offers.Count > 0
+                    ? Math.Round(request.Offers.Average(o => o.Confidence), 4)
+                    : 0,
+                ByCategory = request.Offers
+                    .GroupBy(o => o.Category ?? "Andet")
+                    .ToDictionary(g => g.Key, g => g.Count())
+            };
+
+            await _runService.CompleteRunAsync(flyerId, processingRun.RunId, new CompleteRunRequest
+            {
+                Metrics = metrics,
+                OffersCreated = result.Saved,
+                OffersUpdated = 0
+            });
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new
@@ -117,7 +159,8 @@ public class UploadDealsV2
                 needs_review = needsReview,
                 retailer = request.Meta?.Retailer,
                 valid_from = request.Meta?.ValidFrom,
-                valid_to = request.Meta?.ValidTo
+                valid_to = request.Meta?.ValidTo,
+                processing_run_id = processingRun.RunId
             });
 
             return response;
