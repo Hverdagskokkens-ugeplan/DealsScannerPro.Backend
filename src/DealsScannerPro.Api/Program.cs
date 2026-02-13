@@ -21,6 +21,8 @@ var host = new HostBuilder()
         services.AddSingleton<IReprocessService, ReprocessService>();
         services.AddSingleton<IProcessingRunService, ProcessingRunService>();
         services.AddSingleton<IProductAliasService, ProductAliasService>();
+        services.AddSingleton<ISystemSettingsService, SystemSettingsService>();
+        services.AddSingleton<IArchiveService, ArchiveService>();
     })
     .Build();
 

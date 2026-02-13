@@ -193,4 +193,5 @@ public static class OfferStatus
     public const string Published = "published";
     public const string Deleted = "deleted";
     public const string LowConfidence = "low_confidence";
+    public const string Archived = "archived";
 }

@@ -302,7 +302,14 @@ public class OfferService : IOfferService
             filters.Add($"Category eq '{query.Category}'");
 
         if (!string.IsNullOrEmpty(query.Status))
+        {
             filters.Add($"Status eq '{query.Status}'");
+        }
+        else
+        {
+            filters.Add($"Status ne '{OfferStatus.Archived}'");
+            filters.Add($"Status ne '{OfferStatus.Deleted}'");
+        }
 
         if (query.ValidOn.HasValue)
         {
