@@ -648,6 +648,115 @@
         }
 
         .hidden { display: none !important; }
+
+        /* JSON Fold-out */
+        .json-toggle-btn {
+            background: #6b7280;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .json-toggle-btn:hover {
+            background: #4b5563;
+        }
+
+        .json-toggle-btn.active {
+            background: #8b5cf6;
+        }
+
+        .json-section {
+            display: none;
+            background: #1e1e1e;
+            padding: 15px;
+            border-top: 1px solid #e0e0e0;
+            max-height: 400px;
+            overflow: auto;
+        }
+
+        .json-section.visible {
+            display: block;
+        }
+
+        .json-section pre {
+            margin: 0;
+            font-family: 'SF Mono', Monaco, 'Consolas', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #d4d4d4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .json-section .json-key { color: #9cdcfe; }
+        .json-section .json-string { color: #ce9178; }
+        .json-section .json-number { color: #b5cea8; }
+        .json-section .json-boolean { color: #569cd6; }
+        .json-section .json-null { color: #569cd6; }
+
+        /* Status indicators on cards */
+        .learning-card {
+            border-left: 4px solid #e5e7eb;
+        }
+
+        .learning-card.status-needs_review {
+            border-left-color: #f59e0b;
+        }
+
+        .learning-card.status-published {
+            border-left-color: #10b981;
+        }
+
+        .learning-card.status-deleted {
+            border-left-color: #ef4444;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-badge.needs_review {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-badge.published {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-badge.deleted {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Warning banner for published items */
+        .published-warning {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            color: #92400e;
+            padding: 10px 15px;
+            margin: 0 20px 15px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .published-warning::before {
+            content: "⚠️";
+        }
     </style>
 </head>
 <body>
@@ -714,14 +823,20 @@
 
         <div class="actions-bar">
             <div class="filter-group">
-                <span class="mode-badge">Kandidat-valg mode</span>
-            </div>
-            <div class="filter-group">
+                <select class="filter-select" id="status-filter">
+                    <option value="needs_review">Afventer review</option>
+                    <option value="published">Godkendt</option>
+                    <option value="">Alle</option>
+                </select>
                 <select class="filter-select" id="retailer-filter">
                     <option value="">Alle butikker</option>
                     <option value="netto">Netto</option>
                     <option value="rema">Rema 1000</option>
                 </select>
+                <select class="filter-select" id="pdf-filter">
+                    <option value="">Alle PDF'er</option>
+                </select>
+                <input type="date" class="filter-select" id="date-filter" title="Dato for godkendte tilbud">
                 <button class="refresh-btn" id="refresh-btn">Opdater</button>
             </div>
         </div>
@@ -781,7 +896,8 @@
 
         // State
         let currentUser = null;
-        let offers = [];
+        let allOffers = []; // All fetched offers before filtering
+        let offers = [];    // Filtered offers for display
         let currentIndex = 0;
         let selections = {}; // { offerId: { priceIndex, amountIndex } }
 
@@ -831,7 +947,15 @@
 
             // Queue actions
             document.getElementById('refresh-btn').addEventListener('click', loadQueue);
-            document.getElementById('retailer-filter').addEventListener('change', renderQueue);
+            document.getElementById('status-filter').addEventListener('change', loadQueue); // Reload from API
+            document.getElementById('retailer-filter').addEventListener('change', applyFilters);
+            document.getElementById('pdf-filter').addEventListener('change', applyFilters);
+            document.getElementById('date-filter').addEventListener('change', loadQueue);
+
+            // Initialize date filter to yesterday (more likely to have published data)
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            document.getElementById('date-filter').value = yesterday.toISOString().split('T')[0];
         }
 
         // Auth Functions
@@ -921,41 +1045,154 @@
         // Queue Functions
         async function loadQueue() {
             showLoading(true);
+            const statusFilter = document.getElementById('status-filter').value;
 
             try {
-                const response = await fetch(`${API_BASE}/review/queue?limit=50`, {
-                    headers: {
-                        'Authorization': `Bearer ${currentUser?.token}`,
-                        'x-api-key': currentUser?.token
-                    }
-                });
+                const headers = {
+                    'Authorization': `Bearer ${currentUser?.token}`,
+                    'x-api-key': currentUser?.token
+                };
 
-                if (response.ok) {
-                    const data = await response.json();
-                    offers = (data.offers || data || []).filter(o => o.candidates);
-                    updateStats();
+                if (statusFilter === 'published') {
+                    // Published items come from search endpoint (needs date)
+                    const dateFilter = document.getElementById('date-filter').value;
+                    const response = await fetch(`${API_BASE}/tilbud/search?dato=${dateFilter}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        // Map search format to review format and mark as published
+                        allOffers = data.map(item => ({
+                            ...item,
+                            id: item.id,
+                            partition_key: `${(item.Butik || '').toLowerCase()}_${item.gyldig_fra}_${item.gyldig_til}`,
+                            retailer: (item.Butik || '').toLowerCase(),
+                            product_norm: item.Produkt,
+                            product_text_raw: item.Produkt,
+                            category: item.Kategori,
+                            price_value: item.total_pris,
+                            confidence: item.Konfidens,
+                            status: 'published',
+                            trace: { page: item.Side }
+                        }));
+                    } else {
+                        allOffers = [];
+                    }
+                } else if (statusFilter === '') {
+                    // "Alle" selected - fetch both review queue and published
+                    const dateFilter = document.getElementById('date-filter').value;
+                    const [reviewResponse, searchResponse] = await Promise.all([
+                        fetch(`${API_BASE}/review/queue?limit=200`, { headers }),
+                        fetch(`${API_BASE}/tilbud/search?dato=${dateFilter}`)
+                    ]);
+
+                    let reviewOffers = [];
+                    let publishedOffers = [];
+
+                    if (reviewResponse.ok) {
+                        const data = await reviewResponse.json();
+                        reviewOffers = data.offers || data || [];
+                    }
+                    if (searchResponse.ok) {
+                        const data = await searchResponse.json();
+                        publishedOffers = data.map(item => ({
+                            ...item,
+                            id: item.id,
+                            partition_key: `${(item.Butik || '').toLowerCase()}_${item.gyldig_fra}_${item.gyldig_til}`,
+                            retailer: (item.Butik || '').toLowerCase(),
+                            product_norm: item.Produkt,
+                            product_text_raw: item.Produkt,
+                            category: item.Kategori,
+                            price_value: item.total_pris,
+                            confidence: item.Konfidens,
+                            status: 'published',
+                            trace: { page: item.Side }
+                        }));
+                    }
+
+                    allOffers = [...reviewOffers, ...publishedOffers];
                 } else {
-                    offers = generateDemoOffers();
-                    updateStats();
+                    // needs_review - use review queue
+                    const response = await fetch(`${API_BASE}/review/queue?limit=200`, { headers });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        allOffers = data.offers || data || [];
+                    } else {
+                        allOffers = generateDemoOffers();
+                    }
                 }
+
+                populatePdfFilter();
+                applyFilters();
+                updateStats();
             } catch (e) {
                 console.error('Load queue error:', e);
-                offers = generateDemoOffers();
+                allOffers = generateDemoOffers();
+                populatePdfFilter();
+                applyFilters();
                 updateStats();
             } finally {
-                selections = {};
-                // Pre-populate selections with current selected indices
-                offers.forEach(o => {
-                    const id = o.id || o.row_key;
-                    selections[id] = {
-                        priceIndex: o.candidates?.selected?.price_index ?? null,
-                        amountIndex: o.candidates?.selected?.amount_index ?? null
-                    };
-                });
-                currentIndex = 0;
-                renderQueue();
                 showLoading(false);
             }
+        }
+
+        function populatePdfFilter() {
+            const pdfFilter = document.getElementById('pdf-filter');
+            const currentValue = pdfFilter.value;
+
+            // Get unique partition_keys (PDF identifiers)
+            const pdfs = [...new Set(allOffers.map(o => o.partition_key).filter(Boolean))];
+            pdfs.sort();
+
+            // Rebuild options
+            pdfFilter.innerHTML = '<option value="">Alle PDF\'er</option>';
+            pdfs.forEach(pdf => {
+                // Format: "netto_2025-12-22_2025-12-28" -> "Netto (22/12 - 28/12)"
+                const parts = pdf.split('_');
+                const retailer = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : '?';
+                const fromDate = parts[1] ? formatShortDate(parts[1]) : '';
+                const toDate = parts[2] ? formatShortDate(parts[2]) : '';
+                const label = `${retailer} (${fromDate} - ${toDate})`;
+
+                const option = document.createElement('option');
+                option.value = pdf;
+                option.textContent = label;
+                pdfFilter.appendChild(option);
+            });
+
+            // Restore selection if still valid
+            if (currentValue && pdfs.includes(currentValue)) {
+                pdfFilter.value = currentValue;
+            }
+        }
+
+        function formatShortDate(dateStr) {
+            // "2025-12-22" -> "22/12"
+            const parts = dateStr.split('-');
+            return parts.length === 3 ? `${parts[2]}/${parts[1]}` : dateStr;
+        }
+
+        function applyFilters() {
+            const retailerFilter = document.getElementById('retailer-filter').value;
+            const pdfFilter = document.getElementById('pdf-filter').value;
+
+            offers = allOffers.filter(o => {
+                if (retailerFilter && o.retailer !== retailerFilter) return false;
+                if (pdfFilter && o.partition_key !== pdfFilter) return false;
+                return true;
+            });
+
+            // Pre-populate selections
+            selections = {};
+            offers.forEach(o => {
+                const id = o.id || o.row_key;
+                selections[id] = {
+                    priceIndex: o.candidates?.selected?.price_index ?? null,
+                    amountIndex: o.candidates?.selected?.amount_index ?? null
+                };
+            });
+
+            currentIndex = 0;
+            renderQueue();
         }
 
         function generateDemoOffers() {
@@ -1055,30 +1292,28 @@
 
         function renderQueue() {
             const container = document.getElementById('queue-container');
-            const retailerFilter = document.getElementById('retailer-filter').value;
-
-            let filtered = [...offers];
-
-            if (retailerFilter) {
-                filtered = filtered.filter(o => o.retailer === retailerFilter);
-            }
+            const statusFilter = document.getElementById('status-filter').value;
 
             // Sort by page number (lowest first)
-            filtered.sort((a, b) => {
+            const sorted = [...offers].sort((a, b) => {
                 const pageA = a.trace?.page ?? a.page ?? 999;
                 const pageB = b.trace?.page ?? b.page ?? 999;
                 return pageA - pageB;
             });
 
-            if (filtered.length === 0) {
+            if (sorted.length === 0) {
+                const statusText = statusFilter === 'published' ? 'godkendte' :
+                                   statusFilter === 'needs_review' ? 'afventende' : '';
                 container.innerHTML = `
                     <div class="queue-empty">
-                        <h2>Ingen tilbud med kandidater</h2>
-                        <p>Vent pa at scanneren genererer nye tilbud med kandidater.</p>
+                        <h2>Ingen ${statusText} tilbud fundet</h2>
+                        <p>Prøv at ændre filtrene eller vent på nye tilbud.</p>
                     </div>
                 `;
                 return;
             }
+
+            const filtered = sorted; // Alias for clarity
 
             container.innerHTML = filtered.map((offer, idx) => renderLearningCard(offer, idx)).join('');
 
@@ -1099,6 +1334,49 @@
             container.querySelectorAll('.action-btn.reject').forEach(btn => {
                 btn.addEventListener('click', () => rejectOffer(btn.dataset.id));
             });
+
+            // Attach JSON toggle handlers
+            container.querySelectorAll('.json-toggle-btn').forEach(btn => {
+                btn.addEventListener('click', () => toggleJson(btn));
+            });
+        }
+
+        function toggleJson(btn) {
+            const id = btn.dataset.id;
+            const section = document.getElementById(`json-${id}`);
+            const isVisible = section.classList.contains('visible');
+
+            if (isVisible) {
+                section.classList.remove('visible');
+                btn.classList.remove('active');
+                btn.textContent = 'Vis JSON';
+            } else {
+                section.classList.add('visible');
+                btn.classList.add('active');
+                btn.textContent = 'Skjul JSON';
+            }
+        }
+
+        function syntaxHighlight(json) {
+            return json
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/(\"(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\\"])*\"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                    let cls = 'json-number';
+                    if (/^\"/.test(match)) {
+                        if (/:$/.test(match)) {
+                            cls = 'json-key';
+                        } else {
+                            cls = 'json-string';
+                        }
+                    } else if (/true|false/.test(match)) {
+                        cls = 'json-boolean';
+                    } else if (/null/.test(match)) {
+                        cls = 'json-null';
+                    }
+                    return '<span class="' + cls + '">' + match + '</span>';
+                });
         }
 
         function renderLearningCard(offer, index) {
@@ -1106,13 +1384,21 @@
             const confClass = offer.confidence >= 0.8 ? 'high' : offer.confidence >= 0.6 ? 'medium' : 'low';
             const id = offer.id || offer.row_key;
             const selection = selections[id] || {};
+            const status = offer.status || 'needs_review';
+            const isPublished = status === 'published';
 
             const priceCandidates = offer.candidates?.price_candidates || [];
             const amountCandidates = offer.candidates?.amount_candidates || [];
 
+            // Status badge text
+            const statusText = status === 'published' ? 'Godkendt' :
+                               status === 'needs_review' ? 'Afventer' :
+                               status === 'deleted' ? 'Afvist' : status;
+
             return `
-                <div class="learning-card" data-id="${id}">
+                <div class="learning-card status-${status}" data-id="${id}" data-status="${status}">
                     <div class="card-header">
+                        <span class="status-badge ${status}">${statusText}</span>
                         <span class="retailer-badge">${offer.retailer || 'Ukendt'}</span>
                         ${offer.trace?.page ? `<span class="page-badge">Side ${offer.trace.page}</span>` : ''}
                         <div class="confidence-badge">
@@ -1122,6 +1408,12 @@
                             <span class="confidence-value">${confPercent}%</span>
                         </div>
                     </div>
+
+                    ${isPublished ? `
+                    <div class="published-warning">
+                        Dette tilbud er allerede godkendt. Ændringer kræver bekræftelse.
+                    </div>
+                    ` : ''}
 
                     <div class="card-body">
                         <div class="card-image">
@@ -1189,6 +1481,11 @@
                         <button class="action-btn save" data-id="${id}">Gem valg</button>
                         <button class="action-btn skip" data-id="${id}">Spring over</button>
                         <button class="action-btn reject" data-id="${id}">Afvis</button>
+                        <button class="json-toggle-btn" data-id="${id}">Vis JSON</button>
+                    </div>
+
+                    <div class="json-section" id="json-${id}">
+                        <pre>${syntaxHighlight(JSON.stringify(offer, null, 2))}</pre>
                     </div>
                 </div>
             `;
@@ -1219,6 +1516,13 @@
         async function saveOffer(id) {
             const offer = offers.find(o => (o.id || o.row_key) === id);
             if (!offer) return;
+
+            // Warning for already published items
+            if (offer.status === 'published') {
+                if (!confirm('Dette tilbud er allerede godkendt.\n\nVil du opdatere det med de nye værdier?')) {
+                    return;
+                }
+            }
 
             const selection = selections[id] || {};
             showLoading(true);
@@ -1285,10 +1589,17 @@
         }
 
         async function rejectOffer(id) {
-            if (!confirm('Er du sikker pa du vil afvise dette tilbud?')) return;
-
             const offer = offers.find(o => (o.id || o.row_key) === id);
             if (!offer) return;
+
+            // Extra warning for published items
+            if (offer.status === 'published') {
+                if (!confirm('⚠️ ADVARSEL: Dette tilbud er ALLEREDE GODKENDT!\n\nEr du helt sikker på du vil afvise det?\n\nDette vil fjerne tilbuddet fra de offentliggjorte data.')) {
+                    return;
+                }
+            } else {
+                if (!confirm('Er du sikker på du vil afvise dette tilbud?')) return;
+            }
 
             showLoading(true);
 
